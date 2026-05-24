@@ -3,10 +3,15 @@ import { v } from 'convex/values'
 import {
   DEFAULT_CONNECTION_KEY,
   DEFAULT_PACKAGE_POLICY,
-  README_STALE_MS,
   type HealthStatus,
   type PackagePolicy,
 } from './constants'
+import {
+  evaluateReadmeFreshness,
+  evaluateTestsConfigured,
+  summarizeStatuses,
+  type ChecklistFinding,
+} from './checklist'
 import {
   GitHubHttpError,
   classifyVersionUpdate,
@@ -33,12 +38,6 @@ type GitHubContentResponse = {
   type: 'file' | 'dir'
   content?: string
   encoding?: string
-}
-
-type ChecklistFinding = {
-  checkKey: string
-  status: HealthStatus
-  detail?: string
 }
 
 type PackageFinding = {
@@ -69,6 +68,59 @@ export const listRepositories = queryGeneric({
       .query('repositories')
       .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
       .collect()
+  },
+})
+
+export const listRepositoryDashboard = queryGeneric({
+  args: {
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const connection = await ctx.db
+      .query('githubConnections')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('connectionKey', args.connectionKey ?? DEFAULT_CONNECTION_KEY)
+      )
+      .first()
+
+    if (!connection) {
+      return []
+    }
+
+    const repositories = await ctx.db
+      .query('repositories')
+      .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
+      .collect()
+
+    const dashboard = []
+    for (const repository of repositories) {
+      const scanRunId = repository.lastScanRunId
+      const packageFindings = scanRunId
+        ? await ctx.db
+          .query('packageFindings')
+          .withIndex('by_repository_and_scan', (q) =>
+            q.eq('repositoryId', repository._id).eq('scanRunId', scanRunId)
+          )
+          .collect()
+        : []
+
+      const checklistFindings = scanRunId
+        ? await ctx.db
+          .query('checklistFindings')
+          .withIndex('by_repository_and_scan', (q) =>
+            q.eq('repositoryId', repository._id).eq('scanRunId', scanRunId)
+          )
+          .collect()
+        : []
+
+      dashboard.push({
+        ...repository,
+        packageFindings,
+        checklistFindings,
+      })
+    }
+
+    return dashboard.sort((a, b) => a.fullName.localeCompare(b.fullName))
   },
 })
 
@@ -232,6 +284,7 @@ export const saveRepositoryScanResult = mutationGeneric({
     await ctx.db.patch(args.repositoryId, {
       hasPackageJson: args.hasPackageJson,
       lastScanAt: now,
+      lastScanRunId: args.scanRunId,
       lastScanStatus: args.repositoryStatus,
       lastScanError: args.repositoryError,
       updatedAt: now,
@@ -608,20 +661,7 @@ async function evaluateChecklist(
 ): Promise<ChecklistFinding[]> {
   const findings: ChecklistFinding[] = []
 
-  const testScript = packageJson?.scripts?.test
-  if (!testScript || testScript.includes('no test specified')) {
-    findings.push({
-      checkKey: 'tests-configured',
-      status: 'missing',
-      detail: 'No test script found in package.json',
-    })
-  } else {
-    findings.push({
-      checkKey: 'tests-configured',
-      status: 'ok',
-      detail: `Test script detected: ${testScript}`,
-    })
-  }
+  findings.push(evaluateTestsConfigured(packageJson?.scripts?.test))
 
   const ciExists = await directoryExists(
     token,
@@ -656,29 +696,9 @@ async function evaluateChecklist(
       repository.name,
       'README.md'
     )
-
-    if (!readmeCommitDate) {
-      findings.push({
-        checkKey: 'readme-freshness',
-        status: 'unknown',
-        detail: 'Unable to determine README commit date',
-      })
-    } else {
-      const isStale = Date.now() - readmeCommitDate.getTime() > README_STALE_MS
-      findings.push({
-        checkKey: 'readme-freshness',
-        status: isStale ? 'stale' : 'ok',
-        detail: isStale
-          ? 'README was updated more than 180 days ago'
-          : 'README updated within 180 days',
-      })
-    }
+    findings.push(evaluateReadmeFreshness(true, readmeCommitDate))
   } else {
-    findings.push({
-      checkKey: 'readme-freshness',
-      status: 'missing',
-      detail: 'README freshness cannot be measured because README is missing',
-    })
+    findings.push(evaluateReadmeFreshness(false, null))
   }
 
   const dependabotExists =
@@ -764,28 +784,6 @@ async function getFileLastCommitDate(token: string, owner: string, name: string,
     }
     throw error
   }
-}
-
-function summarizeStatuses(statuses: HealthStatus[]): HealthStatus {
-  if (statuses.length === 0) {
-    return 'unknown'
-  }
-  if (statuses.includes('error')) {
-    return 'error'
-  }
-  if (statuses.includes('stale')) {
-    return 'stale'
-  }
-  if (statuses.includes('missing')) {
-    return 'missing'
-  }
-  if (statuses.includes('warning')) {
-    return 'warning'
-  }
-  if (statuses.every((status) => status === 'ok')) {
-    return 'ok'
-  }
-  return 'unknown'
 }
 
 function extractMessage(error: unknown) {

@@ -31,6 +31,7 @@ export default defineSchema({
     pushedAt: v.optional(v.number()),
     hasPackageJson: v.optional(v.boolean()),
     lastScanAt: v.optional(v.number()),
+    lastScanRunId: v.optional(v.id('scanRuns')),
     lastScanStatus: v.optional(
       v.union(
         v.literal('ok'),

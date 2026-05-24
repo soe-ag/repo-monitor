@@ -6,7 +6,7 @@ import { getConvexHttpClient } from '@/lib/convexHttp'
 export async function GET() {
   try {
     const client = getConvexHttpClient()
-    const repositories = await client.query(anyApi.scans.listRepositories, {
+    const repositories = await client.query(anyApi.scans.listRepositoryDashboard, {
       connectionKey: DEFAULT_CONNECTION_KEY,
     })
     return NextResponse.json(repositories)
