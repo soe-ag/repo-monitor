@@ -3,12 +3,21 @@ import { NextResponse } from 'next/server'
 import { DEFAULT_CONNECTION_KEY } from '@/convex/constants'
 import { getConvexHttpClient } from '@/lib/convexHttp'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const client = getConvexHttpClient()
     const repositories = await client.query(anyApi.scans.listRepositoryDashboard, {
       connectionKey: DEFAULT_CONNECTION_KEY,
     })
+
+    const url = new URL(request.url)
+    const repositoryId = url.searchParams.get('repositoryId')
+    if (repositoryId) {
+      return NextResponse.json(
+        repositories.filter((repository: { _id: string }) => repository._id === repositoryId)
+      )
+    }
+
     return NextResponse.json(repositories)
   } catch (error) {
     return NextResponse.json(

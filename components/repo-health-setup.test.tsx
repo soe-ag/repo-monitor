@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RepoHealthSetup } from './repo-health-setup'
 
@@ -37,7 +37,9 @@ describe('RepoHealthSetup', () => {
               _id: 'repo-1',
               fullName: 'acme/repo-monitor',
               visibility: 'private',
-              lastScanAt: 1700000000000,
+              githubCreatedAt: 1735689600000,
+              githubUpdatedAt: 1767225600000,
+              lastScanAt: 1767225600000,
               lastScanStatus: 'warning',
               packageFindings: [
                 {
@@ -85,7 +87,7 @@ describe('RepoHealthSetup', () => {
     expect(screen.getByText(/Dependabot config file missing/)).toBeInTheDocument()
   })
 
-  it('shows empty state for healthy filter when no healthy repositories exist', async () => {
+  it('renders only all and needs-attention filters', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -107,6 +109,9 @@ describe('RepoHealthSetup', () => {
               _id: 'repo-1',
               fullName: 'acme/repo-monitor',
               visibility: 'private',
+              githubCreatedAt: 1735689600000,
+              githubUpdatedAt: 1767225600000,
+              lastScanAt: 1767225600000,
               lastScanStatus: 'warning',
               packageFindings: [],
               checklistFindings: [],
@@ -120,10 +125,8 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Healthy/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Needs attention/ }))
 
-    await waitFor(() => {
-      expect(screen.getByText('No repositories match the current filter.')).toBeInTheDocument()
-    })
+    expect(screen.queryByRole('button', { name: /Healthy/ })).not.toBeInTheDocument()
   })
 })

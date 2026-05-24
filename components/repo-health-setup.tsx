@@ -1,7 +1,14 @@
 'use client'
 
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { ExclamationTriangleIcon, Link2Icon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
+import {
+  ExclamationTriangleIcon,
+  Link2Icon,
+  MoonIcon,
+  ReloadIcon,
+  SunIcon,
+  TrashIcon,
+} from '@radix-ui/react-icons'
 import { AlertTriangle, CheckCircle2, CircleHelp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,7 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
-type DashboardFilter = 'all' | 'needs-attention' | 'healthy'
+type DashboardFilter = 'all' | 'needs-attention'
 type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
 
 type ConnectionState = {
@@ -82,6 +89,14 @@ type SvglApiEntry = {
 type StackLogo = {
   name: string
   iconUrl: string
+}
+
+type ScanActivity = {
+  mode: 'all' | 'single'
+  status: 'running' | 'completed' | 'timed-out'
+  startedAt: number
+  lastCheckedAt?: number
+  repositoryId?: string
 }
 
 const sortOptions: Array<{ value: SortOption; label: string }> = [
@@ -143,19 +158,6 @@ const stackAlias: Record<string, string> = {
   'aws-sdk': 'amazon web services',
 }
 
-function statusBadgeVariant(status: HealthStatus | undefined) {
-  if (status === 'ok') {
-    return 'default' as const
-  }
-  if (status === 'error') {
-    return 'destructive' as const
-  }
-  if (status === 'warning' || status === 'missing' || status === 'stale') {
-    return 'outline' as const
-  }
-  return 'secondary' as const
-}
-
 function needsAttention(status: HealthStatus | undefined) {
   return status === 'warning' || status === 'missing' || status === 'stale' || status === 'error'
 }
@@ -193,9 +195,12 @@ function normalizeSvglRoute(route: SvglApiEntry['route']) {
 }
 
 export function RepoHealthSetup() {
+  const currentYear = new Date().getFullYear()
   const [pat, setPat] = useState('')
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [filter, setFilter] = useState<DashboardFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
+  const [minimumYear, setMinimumYear] = useState<number>(() => new Date().getFullYear() - 2)
   const [connectionState, setConnectionState] = useState<ConnectionState | null>(null)
   const [repositories, setRepositories] = useState<RepositoryHealthCard[]>([])
   const [message, setMessage] = useState<string | null>(null)
@@ -203,6 +208,7 @@ export function RepoHealthSetup() {
   const [detailRepository, setDetailRepository] = useState<RepositoryHealthCard | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [scanActivity, setScanActivity] = useState<ScanActivity | null>(null)
   const [svglMap, setSvglMap] = useState<Record<string, string>>({})
   const [loadingState, setLoadingState] = useState({
     connecting: false,
@@ -227,14 +233,25 @@ export function RepoHealthSetup() {
   }, [connectionState])
 
   const filteredRepositories = useMemo(() => {
+    const fromTimestamp = new Date(minimumYear, 0, 1).getTime()
+    const repositoriesWithinYear = repositories.filter((repository) => {
+      const createdAt = repository.githubCreatedAt ?? 0
+      const updatedAt =
+        repository.githubUpdatedAt ?? repository.pushedAt ?? repository.lastScanAt ?? 0
+      const latestTimestamp = Math.max(createdAt, updatedAt)
+
+      if (latestTimestamp === 0) {
+        return true
+      }
+
+      return latestTimestamp >= fromTimestamp
+    })
+
     if (filter === 'all') {
-      return repositories
+      return repositoriesWithinYear
     }
-    if (filter === 'healthy') {
-      return repositories.filter((repository) => repository.lastScanStatus === 'ok')
-    }
-    return repositories.filter((repository) => needsAttention(repository.lastScanStatus))
-  }, [filter, repositories])
+    return repositoriesWithinYear.filter((repository) => needsAttention(repository.lastScanStatus))
+  }, [filter, minimumYear, repositories])
 
   const sortedRepositories = useMemo(() => {
     const list = [...filteredRepositories]
@@ -257,11 +274,10 @@ export function RepoHealthSetup() {
 
   const filterCounts = useMemo(() => {
     const all = repositories.length
-    const healthy = repositories.filter((repository) => repository.lastScanStatus === 'ok').length
     const needs = repositories.filter((repository) =>
       needsAttention(repository.lastScanStatus)
     ).length
-    return { all, healthy, needs }
+    return { all, needs }
   }, [repositories])
 
   const lastScanAllRunAt = useMemo(() => {
@@ -272,11 +288,51 @@ export function RepoHealthSetup() {
     return latest > 0 ? latest : null
   }, [repositories])
 
+  const oldestCreatedYear = useMemo(() => {
+    if (repositories.length === 0) {
+      return currentYear - 2
+    }
+
+    let oldestTimestamp = Number.POSITIVE_INFINITY
+    for (const repository of repositories) {
+      const createdAt = repository.githubCreatedAt ?? repository._creationTime
+      oldestTimestamp = Math.min(oldestTimestamp, createdAt)
+    }
+
+    if (!Number.isFinite(oldestTimestamp)) {
+      return currentYear - 2
+    }
+
+    return new Date(oldestTimestamp).getFullYear()
+  }, [currentYear, repositories])
+
   useEffect(() => {
+    const storedTheme = window.localStorage.getItem('theme')
+    const systemPrefersDark =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : false
+    const nextTheme =
+      storedTheme === 'dark' || storedTheme === 'light'
+        ? (storedTheme as 'light' | 'dark')
+        : systemPrefersDark
+          ? 'dark'
+          : 'light'
+
+    setTheme(nextTheme)
+    document.documentElement.classList.toggle('dark', nextTheme === 'dark')
+
     void loadConnection()
     void loadRepositories()
     void loadSvglCatalog()
   }, [])
+
+  function toggleTheme() {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(nextTheme)
+    window.localStorage.setItem('theme', nextTheme)
+    document.documentElement.classList.toggle('dark', nextTheme === 'dark')
+  }
 
   async function loadSvglCatalog() {
     try {
@@ -345,16 +401,39 @@ export function RepoHealthSetup() {
   async function pollQueuedScans(targetRepositoryId?: string) {
     const pollStartedAt = Date.now()
     let attempts = 0
+    const maxAttempts = 120
+    const isSingleScan = Boolean(targetRepositoryId)
     const interval = setInterval(async () => {
       attempts += 1
       try {
-        const response = await fetch('/api/scans')
+        const response = await fetch(
+          isSingleScan ? `/api/scans?repositoryId=${targetRepositoryId}` : '/api/scans'
+        )
         const payload = (await response.json()) as RepositoryHealthCard[] | { error: string }
         if ('error' in payload) {
           return
         }
 
-        setRepositories(payload)
+        if (isSingleScan && targetRepositoryId) {
+          setRepositories((prev) => {
+            const updated = payload.find((repo) => repo._id === targetRepositoryId)
+            if (!updated) {
+              return prev
+            }
+            return prev.map((repo) => (repo._id === targetRepositoryId ? updated : repo))
+          })
+        } else {
+          setRepositories(payload)
+        }
+
+        setScanActivity((prev) =>
+          prev
+            ? {
+                ...prev,
+                lastCheckedAt: Date.now(),
+              }
+            : prev
+        )
 
         const hasCompleted = targetRepositoryId
           ? payload.some(
@@ -362,17 +441,35 @@ export function RepoHealthSetup() {
             )
           : payload.some((repo) => (repo.lastScanAt ?? 0) >= pollStartedAt)
 
-        if (hasCompleted || attempts >= 12) {
+        if (hasCompleted || attempts >= maxAttempts) {
           clearInterval(interval)
+          setScanActivity((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: hasCompleted ? 'completed' : 'timed-out',
+                  lastCheckedAt: Date.now(),
+                }
+              : prev
+          )
           setMessage(
             hasCompleted
-              ? 'Scan finished and dashboard updated'
-              : 'Scan is still running in the background. Refresh later if needed.'
+              ? `Scan finished at ${new Date().toLocaleTimeString()} and dashboard updated.`
+              : 'Scan is still running in the background. We stopped auto-checking; use Scan again or refresh later.'
           )
         }
       } catch {
-        if (attempts >= 12) {
+        if (attempts >= maxAttempts) {
           clearInterval(interval)
+          setScanActivity((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: 'timed-out',
+                  lastCheckedAt: Date.now(),
+                }
+              : prev
+          )
         }
       }
     }, 3500)
@@ -420,6 +517,7 @@ export function RepoHealthSetup() {
       setMessage('Failed to trigger scan all')
     } else {
       setMessage('Scan all queued. Watching for updates...')
+      setScanActivity({ mode: 'all', status: 'running', startedAt: Date.now() })
       void pollQueuedScans()
     }
     setLoadingState((prev) => ({ ...prev, scanningAll: false }))
@@ -438,6 +536,12 @@ export function RepoHealthSetup() {
       setMessage('Failed to trigger repository scan')
     } else {
       setMessage('Repository scan queued. Watching for updates...')
+      setScanActivity({
+        mode: 'single',
+        status: 'running',
+        startedAt: Date.now(),
+        repositoryId,
+      })
       void pollQueuedScans(repositoryId)
     }
     setLoadingState((prev) => ({ ...prev, scanningSingle: '' }))
@@ -555,9 +659,22 @@ export function RepoHealthSetup() {
               </div>
             ) : null}
           </div>
-          <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
-            {connectionBadge.text}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-8 rounded-full"
+              onClick={toggleTheme}
+              aria-label="Toggle theme"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+            </Button>
+            <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
+              {connectionBadge.text}
+            </Badge>
+          </div>
         </div>
 
         {message ? (
@@ -646,8 +763,29 @@ export function RepoHealthSetup() {
                   Last run:{' '}
                   {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString() : 'Never'}
                 </p>
-                <p className="text-xs text-muted-foreground">Total repos: {repositories.length}</p>
+                <a
+                  href="/scan-manual.md"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-muted-foreground underline"
+                >
+                  Scan manual
+                </a>
               </div>
+
+              {scanActivity ? (
+                <p className="text-xs text-muted-foreground">
+                  Scan status:{' '}
+                  {scanActivity.status === 'running'
+                    ? `running (${scanActivity.mode === 'all' ? 'all repos' : 'single repo'})`
+                    : scanActivity.status === 'completed'
+                      ? 'completed'
+                      : 'timed out'}
+                  {scanActivity.lastCheckedAt
+                    ? ` · last checked ${new Date(scanActivity.lastCheckedAt).toLocaleTimeString()}`
+                    : ''}
+                </p>
+              ) : null}
 
               <div className="inline-flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-background/80 p-1.5">
                 <Button
@@ -666,26 +804,37 @@ export function RepoHealthSetup() {
                 >
                   Needs attention ({filterCounts.needs})
                 </Button>
-                <Button
-                  size="sm"
-                  className="rounded-full"
-                  variant={filter === 'healthy' ? 'default' : 'ghost'}
-                  onClick={() => setFilter('healthy')}
-                >
-                  Healthy ({filterCounts.healthy})
-                </Button>
               </div>
 
-              <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/80 p-1.5">
+              <div className="inline-flex items-center gap-2 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 p-1.5 whitespace-nowrap">
                 <span className="px-1 text-xs text-muted-foreground">Sort by</span>
                 <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                  <SelectTrigger className="w-[180px] rounded-full" size="sm">
+                  <SelectTrigger className="w-[160px] rounded-full" size="sm">
                     <SelectValue placeholder="Select sorting" />
                   </SelectTrigger>
                   <SelectContent>
                     {sortOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="px-1 text-xs text-muted-foreground">From year</span>
+                <Select
+                  value={String(minimumYear)}
+                  onValueChange={(value) => setMinimumYear(Number(value))}
+                >
+                  <SelectTrigger className="w-[112px] rounded-full" size="sm">
+                    <SelectValue placeholder="Select year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from(
+                      { length: Math.max(1, currentYear - oldestCreatedYear + 1) },
+                      (_, index) => currentYear - index
+                    ).map((year) => (
+                      <SelectItem key={year} value={String(year)}>
+                        {year}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -757,7 +906,6 @@ export function RepoHealthSetup() {
                     </CardTitle>
                     <CardDescription className="flex items-center gap-2">
                       <Badge variant="outline">{repository.visibility}</Badge>
-                      <Badge variant={statusBadgeVariant(status)}>{status}</Badge>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex h-full flex-col justify-between gap-4">
@@ -770,7 +918,7 @@ export function RepoHealthSetup() {
                               src={logo.iconUrl}
                               alt={logo.name}
                               title={logo.name}
-                              className="size-6"
+                              className="size-5"
                             />
                           ))
                         ) : (
