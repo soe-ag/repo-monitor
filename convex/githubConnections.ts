@@ -2,6 +2,7 @@ import { anyApi, mutationGeneric, queryGeneric, actionGeneric } from 'convex/ser
 import { v } from 'convex/values'
 import { DEFAULT_CONNECTION_KEY, DEFAULT_PACKAGE_POLICY, PACKAGE_POLICIES } from './constants'
 import { validatePat } from './github'
+import { resolveGitHubToken } from './tokenSource'
 
 export const getConnectionState = queryGeneric({
   args: {
@@ -29,6 +30,10 @@ export const getConnectionState = queryGeneric({
       rateLimitResetAt: connection.rateLimitResetAt,
       lastValidatedAt: connection.lastValidatedAt,
       lastError: connection.lastError,
+      accountLogin: connection.accountLogin,
+      accountName: connection.accountName,
+      accountAvatarUrl: connection.accountAvatarUrl,
+      accountHtmlUrl: connection.accountHtmlUrl,
     } as const
   },
 })
@@ -59,6 +64,10 @@ export const saveConnection = mutationGeneric({
       v.literal('minor-or-major'),
       v.literal('major-only')
     ),
+    accountLogin: v.optional(v.string()),
+    accountName: v.optional(v.string()),
+    accountAvatarUrl: v.optional(v.string()),
+    accountHtmlUrl: v.optional(v.string()),
     rateLimitResetAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
   },
@@ -75,6 +84,10 @@ export const saveConnection = mutationGeneric({
         tokenSource: args.tokenSource,
         status: args.status,
         packagePolicy: args.packagePolicy,
+        accountLogin: args.accountLogin,
+        accountName: args.accountName,
+        accountAvatarUrl: args.accountAvatarUrl,
+        accountHtmlUrl: args.accountHtmlUrl,
         lastValidatedAt: now,
         rateLimitResetAt: args.rateLimitResetAt,
         lastError: args.lastError,
@@ -89,6 +102,10 @@ export const saveConnection = mutationGeneric({
       tokenSource: args.tokenSource,
       status: args.status,
       packagePolicy: args.packagePolicy,
+      accountLogin: args.accountLogin,
+      accountName: args.accountName,
+      accountAvatarUrl: args.accountAvatarUrl,
+      accountHtmlUrl: args.accountHtmlUrl,
       lastValidatedAt: now,
       rateLimitResetAt: args.rateLimitResetAt,
       lastError: args.lastError,
@@ -127,6 +144,67 @@ export const updatePackagePolicy = mutationGeneric({
   },
 })
 
+export const deleteConnection = mutationGeneric({
+  args: {
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const key = args.connectionKey ?? DEFAULT_CONNECTION_KEY
+    const existing = await ctx.db
+      .query('githubConnections')
+      .withIndex('by_connection_key', (q) => q.eq('connectionKey', key))
+      .first()
+
+    if (!existing) {
+      return { ok: true } as const
+    }
+
+    await ctx.db.delete(existing._id)
+    return { ok: true } as const
+  },
+})
+
+export const refreshConnectionProfile = actionGeneric({
+  args: {
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const connection = await ctx.runQuery(anyApi.githubConnections.getConnectionForScanner, {
+      connectionKey: args.connectionKey ?? DEFAULT_CONNECTION_KEY,
+    })
+
+    if (!connection) {
+      return { ok: false, message: 'Connection not found' } as const
+    }
+
+    const token = resolveGitHubToken(connection)
+    if (!token) {
+      return { ok: false, message: 'OAuth token source is not implemented yet' } as const
+    }
+
+    const validation = await validatePat(token)
+    await ctx.runMutation(anyApi.githubConnections.saveConnection, {
+      connectionKey: connection.connectionKey,
+      token,
+      tokenSource: connection.tokenSource,
+      status: validation.status,
+      packagePolicy: connection.packagePolicy,
+      accountLogin: validation.login,
+      accountName: validation.name,
+      accountAvatarUrl: validation.avatarUrl,
+      accountHtmlUrl: validation.htmlUrl,
+      rateLimitResetAt: validation.rateLimitResetAt,
+      lastError: validation.error,
+    })
+
+    return {
+      ok: validation.status === 'connected',
+      status: validation.status,
+      message: validation.error,
+    } as const
+  },
+})
+
 export const connectWithPat = actionGeneric({
   args: {
     pat: v.string(),
@@ -149,6 +227,10 @@ export const connectWithPat = actionGeneric({
       tokenSource: 'pat',
       status: validation.status,
       packagePolicy,
+      accountLogin: validation.login,
+      accountName: validation.name,
+      accountAvatarUrl: validation.avatarUrl,
+      accountHtmlUrl: validation.htmlUrl,
       rateLimitResetAt: validation.rateLimitResetAt,
       lastError: validation.error,
     })

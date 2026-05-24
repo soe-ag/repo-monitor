@@ -1,4 +1,6 @@
-import { anyApi, actionGeneric, mutationGeneric, queryGeneric } from 'convex/server'
+import { action, mutation, query, type ActionCtx } from './_generated/server'
+import { api } from './_generated/api'
+import type { Doc, Id } from './_generated/dataModel'
 import { v } from 'convex/values'
 import {
   DEFAULT_CONNECTION_KEY,
@@ -25,9 +27,12 @@ type GitHubRepository = {
   id: number
   name: string
   full_name: string
+  language?: string | null
   private: boolean
   html_url: string
   default_branch: string
+  created_at: string
+  updated_at: string
   owner: {
     login: string
   }
@@ -48,7 +53,7 @@ type PackageFinding = {
   status: HealthStatus
 }
 
-export const listRepositories = queryGeneric({
+export const listRepositories = query({
   args: {
     connectionKey: v.optional(v.string()),
   },
@@ -71,7 +76,7 @@ export const listRepositories = queryGeneric({
   },
 })
 
-export const listRepositoryDashboard = queryGeneric({
+export const listRepositoryDashboard = query({
   args: {
     connectionKey: v.optional(v.string()),
   },
@@ -97,20 +102,20 @@ export const listRepositoryDashboard = queryGeneric({
       const scanRunId = repository.lastScanRunId
       const packageFindings = scanRunId
         ? await ctx.db
-          .query('packageFindings')
-          .withIndex('by_repository_and_scan', (q) =>
-            q.eq('repositoryId', repository._id).eq('scanRunId', scanRunId)
-          )
-          .collect()
+            .query('packageFindings')
+            .withIndex('by_repository_and_scan', (q) =>
+              q.eq('repositoryId', repository._id).eq('scanRunId', scanRunId)
+            )
+            .collect()
         : []
 
       const checklistFindings = scanRunId
         ? await ctx.db
-          .query('checklistFindings')
-          .withIndex('by_repository_and_scan', (q) =>
-            q.eq('repositoryId', repository._id).eq('scanRunId', scanRunId)
-          )
-          .collect()
+            .query('checklistFindings')
+            .withIndex('by_repository_and_scan', (q) =>
+              q.eq('repositoryId', repository._id).eq('scanRunId', scanRunId)
+            )
+            .collect()
         : []
 
       dashboard.push({
@@ -124,7 +129,7 @@ export const listRepositoryDashboard = queryGeneric({
   },
 })
 
-export const createScanRun = mutationGeneric({
+export const createScanRun = mutation({
   args: {
     connectionId: v.id('githubConnections'),
     scope: v.union(v.literal('all'), v.literal('single'), v.literal('scheduled')),
@@ -144,7 +149,7 @@ export const createScanRun = mutationGeneric({
   },
 })
 
-export const finalizeScanRun = mutationGeneric({
+export const finalizeScanRun = mutation({
   args: {
     scanRunId: v.id('scanRuns'),
     status: v.union(v.literal('completed'), v.literal('partial'), v.literal('failed')),
@@ -165,7 +170,7 @@ export const finalizeScanRun = mutationGeneric({
   },
 })
 
-export const upsertRepositories = mutationGeneric({
+export const upsertRepositories = mutation({
   args: {
     connectionId: v.id('githubConnections'),
     repositories: v.array(
@@ -174,16 +179,19 @@ export const upsertRepositories = mutationGeneric({
         owner: v.string(),
         name: v.string(),
         fullName: v.string(),
+        primaryLanguage: v.optional(v.string()),
         visibility: v.union(v.literal('public'), v.literal('private')),
         defaultBranch: v.string(),
         htmlUrl: v.string(),
+        githubCreatedAt: v.optional(v.number()),
+        githubUpdatedAt: v.optional(v.number()),
         pushedAt: v.optional(v.number()),
       })
     ),
   },
   handler: async (ctx, args) => {
     const now = Date.now()
-    const idsByFullName: Record<string, string> = {}
+    const idsByFullName: Record<string, Id<'repositories'>> = {}
 
     for (const repo of args.repositories) {
       const existing = await ctx.db
@@ -199,9 +207,12 @@ export const upsertRepositories = mutationGeneric({
           owner: repo.owner,
           name: repo.name,
           fullName: repo.fullName,
+          primaryLanguage: repo.primaryLanguage,
           visibility: repo.visibility,
           defaultBranch: repo.defaultBranch,
           htmlUrl: repo.htmlUrl,
+          githubCreatedAt: repo.githubCreatedAt,
+          githubUpdatedAt: repo.githubUpdatedAt,
           pushedAt: repo.pushedAt,
           updatedAt: now,
         })
@@ -213,9 +224,12 @@ export const upsertRepositories = mutationGeneric({
           owner: repo.owner,
           name: repo.name,
           fullName: repo.fullName,
+          primaryLanguage: repo.primaryLanguage,
           visibility: repo.visibility,
           defaultBranch: repo.defaultBranch,
           htmlUrl: repo.htmlUrl,
+          githubCreatedAt: repo.githubCreatedAt,
+          githubUpdatedAt: repo.githubUpdatedAt,
           pushedAt: repo.pushedAt,
           createdAt: now,
           updatedAt: now,
@@ -228,7 +242,7 @@ export const upsertRepositories = mutationGeneric({
   },
 })
 
-export const saveRepositoryScanResult = mutationGeneric({
+export const saveRepositoryScanResult = mutation({
   args: {
     repositoryId: v.id('repositories'),
     scanRunId: v.id('scanRuns'),
@@ -316,7 +330,7 @@ export const saveRepositoryScanResult = mutationGeneric({
   },
 })
 
-export const triggerScanAll = mutationGeneric({
+export const triggerScanAll = mutation({
   args: {
     connectionKey: v.optional(v.string()),
   },
@@ -336,7 +350,7 @@ export const triggerScanAll = mutationGeneric({
       return { ok: false, message: 'GitHub connection is not valid' } as const
     }
 
-    await ctx.scheduler.runAfter(0, anyApi.scans.scanAllRepositories, {
+    await ctx.scheduler.runAfter(0, api.scans.scanAllRepositories, {
       connectionKey: args.connectionKey ?? DEFAULT_CONNECTION_KEY,
       scope: 'all',
     })
@@ -345,42 +359,42 @@ export const triggerScanAll = mutationGeneric({
   },
 })
 
-export const triggerScanSingleRepository = mutationGeneric({
+export const triggerScanSingleRepository = mutation({
   args: {
     repositoryId: v.id('repositories'),
   },
   handler: async (ctx, args) => {
-    await ctx.scheduler.runAfter(0, anyApi.scans.scanSingleRepository, {
+    await ctx.scheduler.runAfter(0, api.scans.scanSingleRepository, {
       repositoryId: args.repositoryId,
     })
     return { ok: true } as const
   },
 })
 
-export const runScheduledScan = actionGeneric({
+export const runScheduledScan = action({
   args: {},
-  handler: async (ctx) => {
-    return await ctx.runAction(anyApi.scans.scanAllRepositories, {
+  handler: async (ctx): Promise<unknown> => {
+    return await ctx.runAction(api.scans.scanAllRepositories, {
       connectionKey: DEFAULT_CONNECTION_KEY,
       scope: 'scheduled',
     })
   },
 })
 
-export const scanSingleRepository = actionGeneric({
+export const scanSingleRepository = action({
   args: {
     repositoryId: v.id('repositories'),
   },
   handler: async (ctx, args) => {
-    const repository = await ctx.runQuery(anyApi.scans.listRepositories, {
+    const repositories: Doc<'repositories'>[] = await ctx.runQuery(api.scans.listRepositories, {
       connectionKey: DEFAULT_CONNECTION_KEY,
     })
-    const target = repository.find((repo) => repo._id === args.repositoryId)
+    const target = repositories.find((repo) => repo._id === args.repositoryId)
     if (!target) {
       return { ok: false, message: 'Repository not found' } as const
     }
 
-    const connection = await ctx.runQuery(anyApi.githubConnections.getConnectionForScanner, {
+    const connection = await ctx.runQuery(api.githubConnections.getConnectionForScanner, {
       connectionKey: DEFAULT_CONNECTION_KEY,
     })
     if (!connection || connection.status !== 'connected') {
@@ -391,7 +405,7 @@ export const scanSingleRepository = actionGeneric({
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }
 
-    const scanRunId = await ctx.runMutation(anyApi.scans.createScanRun, {
+    const scanRunId = await ctx.runMutation(api.scans.createScanRun, {
       connectionId: connection._id,
       scope: 'single',
       repositoryId: target._id,
@@ -408,14 +422,17 @@ export const scanSingleRepository = actionGeneric({
           owner: { login: target.owner },
           private: target.visibility === 'private',
           html_url: target.htmlUrl,
+          language: target.primaryLanguage,
           default_branch: target.defaultBranch,
+          created_at: target.githubCreatedAt ? new Date(target.githubCreatedAt).toISOString() : '',
+          updated_at: target.githubUpdatedAt ? new Date(target.githubUpdatedAt).toISOString() : '',
           pushed_at: target.pushedAt ? new Date(target.pushedAt).toISOString() : '',
         },
         repositoryId: target._id,
         scanRunId,
       })
 
-      await ctx.runMutation(anyApi.scans.finalizeScanRun, {
+      await ctx.runMutation(api.scans.finalizeScanRun, {
         scanRunId,
         status: 'completed',
         scannedCount: 1,
@@ -424,7 +441,7 @@ export const scanSingleRepository = actionGeneric({
       })
       return { ok: true } as const
     } catch (error) {
-      await ctx.runMutation(anyApi.scans.finalizeScanRun, {
+      await ctx.runMutation(api.scans.finalizeScanRun, {
         scanRunId,
         status: 'failed',
         scannedCount: 1,
@@ -437,13 +454,13 @@ export const scanSingleRepository = actionGeneric({
   },
 })
 
-export const scanAllRepositories = actionGeneric({
+export const scanAllRepositories = action({
   args: {
     connectionKey: v.optional(v.string()),
     scope: v.optional(v.union(v.literal('all'), v.literal('scheduled'))),
   },
   handler: async (ctx, args) => {
-    const connection = await ctx.runQuery(anyApi.githubConnections.getConnectionForScanner, {
+    const connection = await ctx.runQuery(api.githubConnections.getConnectionForScanner, {
       connectionKey: args.connectionKey ?? DEFAULT_CONNECTION_KEY,
     })
     if (!connection) {
@@ -457,25 +474,31 @@ export const scanAllRepositories = actionGeneric({
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }
 
-    const scanRunId = await ctx.runMutation(anyApi.scans.createScanRun, {
+    const scanRunId = await ctx.runMutation(api.scans.createScanRun, {
       connectionId: connection._id,
       scope: args.scope ?? 'all',
     })
 
     try {
       const reposFromGitHub = await fetchAllRepositories(connectionToken)
-      const repoMap = await ctx.runMutation(anyApi.scans.upsertRepositories, {
+      const repoMap = await ctx.runMutation(api.scans.upsertRepositories, {
         connectionId: connection._id,
-        repositories: reposFromGitHub.map((repo) => ({
-          githubId: repo.id,
-          owner: repo.owner.login,
-          name: repo.name,
-          fullName: repo.full_name,
-          visibility: repo.private ? 'private' : 'public',
-          defaultBranch: repo.default_branch,
-          htmlUrl: repo.html_url,
-          pushedAt: repo.pushed_at ? new Date(repo.pushed_at).getTime() : undefined,
-        })),
+        repositories: reposFromGitHub.map((repo) => {
+          const visibility: 'public' | 'private' = repo.private ? 'private' : 'public'
+          return {
+            githubId: repo.id,
+            owner: repo.owner.login,
+            name: repo.name,
+            fullName: repo.full_name,
+            primaryLanguage: repo.language ?? undefined,
+            visibility,
+            defaultBranch: repo.default_branch,
+            htmlUrl: repo.html_url,
+            githubCreatedAt: repo.created_at ? new Date(repo.created_at).getTime() : undefined,
+            githubUpdatedAt: repo.updated_at ? new Date(repo.updated_at).getTime() : undefined,
+            pushedAt: repo.pushed_at ? new Date(repo.pushed_at).getTime() : undefined,
+          }
+        }),
       })
 
       let successCount = 0
@@ -499,7 +522,7 @@ export const scanAllRepositories = actionGeneric({
           successCount += 1
         } catch (error) {
           failedCount += 1
-          await ctx.runMutation(anyApi.scans.saveRepositoryScanResult, {
+          await ctx.runMutation(api.scans.saveRepositoryScanResult, {
             repositoryId,
             scanRunId,
             hasPackageJson: false,
@@ -513,7 +536,7 @@ export const scanAllRepositories = actionGeneric({
 
       const status = failedCount === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial'
 
-      await ctx.runMutation(anyApi.scans.finalizeScanRun, {
+      await ctx.runMutation(api.scans.finalizeScanRun, {
         scanRunId,
         status,
         scannedCount: reposFromGitHub.length,
@@ -529,7 +552,7 @@ export const scanAllRepositories = actionGeneric({
         failedCount,
       } as const
     } catch (error) {
-      await ctx.runMutation(anyApi.scans.finalizeScanRun, {
+      await ctx.runMutation(api.scans.finalizeScanRun, {
         scanRunId,
         status: 'failed',
         scannedCount: 0,
@@ -565,15 +588,13 @@ async function fetchAllRepositories(token: string): Promise<GitHubRepository[]> 
 }
 
 async function runRepositoryScan(
-  ctx: {
-    runMutation: (reference: unknown, args: unknown) => Promise<unknown>
-  },
+  ctx: ActionCtx,
   args: {
     connectionToken: string
     packagePolicy: PackagePolicy | undefined
     repository: GitHubRepository
-    repositoryId: string
-    scanRunId: string
+    repositoryId: Id<'repositories'>
+    scanRunId: Id<'scanRuns'>
   }
 ) {
   const packageJsonResult = await fetchPackageJson(args.connectionToken, args.repository)
@@ -614,7 +635,7 @@ async function runRepositoryScan(
   ]
   const repositoryStatus = summarizeStatuses(combinedStatuses)
 
-  await ctx.runMutation(anyApi.scans.saveRepositoryScanResult, {
+  await ctx.runMutation(api.scans.saveRepositoryScanResult, {
     repositoryId: args.repositoryId,
     scanRunId: args.scanRunId,
     hasPackageJson: packageJsonResult.ok,

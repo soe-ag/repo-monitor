@@ -1,25 +1,43 @@
 'use client'
 
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { ExclamationTriangleIcon, Link2Icon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import { AlertTriangle, CheckCircle2, CircleHelp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
-type PackagePolicy = 'any-newer' | 'minor-or-major' | 'major-only'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
 type DashboardFilter = 'all' | 'needs-attention' | 'healthy'
+type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
 
 type ConnectionState = {
   status: ConnectionStatus
   connected: boolean
-  packagePolicy?: PackagePolicy
   rateLimitResetAt?: number
   lastValidatedAt?: number
   lastError?: string
+  accountLogin?: string
+  accountName?: string
+  accountAvatarUrl?: string
+  accountHtmlUrl?: string
 }
 
 type PackageFinding = {
@@ -40,8 +58,15 @@ type ChecklistFinding = {
 
 type RepositoryHealthCard = {
   _id: string
+  _creationTime: number
   fullName: string
+  htmlUrl: string
+  primaryLanguage?: string
+  hasPackageJson?: boolean
   visibility: 'public' | 'private'
+  githubCreatedAt?: number
+  githubUpdatedAt?: number
+  pushedAt?: number
   lastScanAt?: number
   lastScanStatus?: HealthStatus
   lastScanError?: string
@@ -49,10 +74,20 @@ type RepositoryHealthCard = {
   checklistFindings: ChecklistFinding[]
 }
 
-const packagePolicyOptions: Array<{ value: PackagePolicy; label: string }> = [
-  { value: 'any-newer', label: 'Flag any newer package version' },
-  { value: 'minor-or-major', label: 'Flag minor/major updates only' },
-  { value: 'major-only', label: 'Flag major updates only' },
+type SvglApiEntry = {
+  title: string
+  route: string | { light?: string; dark?: string }
+}
+
+type StackLogo = {
+  name: string
+  iconUrl: string
+}
+
+const sortOptions: Array<{ value: SortOption; label: string }> = [
+  { value: 'alphabetical', label: 'Alphabetical' },
+  { value: 'created-desc', label: 'Created date' },
+  { value: 'updated-desc', label: 'Updated date' },
 ]
 
 const checklistLabels: Record<string, string> = {
@@ -61,6 +96,51 @@ const checklistLabels: Record<string, string> = {
   'readme-exists': 'README',
   'readme-freshness': 'README freshness',
   'dependabot-config': 'Dependabot',
+}
+
+const stackAlias: Record<string, string> = {
+  next: 'next.js',
+  react: 'react',
+  typescript: 'typescript',
+  javascript: 'javascript',
+  tailwindcss: 'tailwind css',
+  vite: 'vite',
+  vitest: 'vitest',
+  convex: 'convex',
+  prisma: 'prisma',
+  docker: 'docker',
+  eslint: 'eslint',
+  jest: 'jest',
+  node: 'node.js',
+  'node.js': 'node.js',
+  'c#': 'c#',
+  'c++': 'c++',
+  'objective-c': 'objective-c',
+  'objective-c++': 'objective-c++',
+  go: 'go',
+  rust: 'rust',
+  python: 'python',
+  java: 'java',
+  kotlin: 'kotlin',
+  swift: 'swift',
+  php: 'php',
+  ruby: 'ruby',
+  'jupyter notebook': 'jupyter',
+  html: 'html5',
+  css: 'css',
+  scss: 'sass',
+  vue: 'vue.js',
+  svelte: 'svelte',
+  angular: 'angular',
+  'c sharp': 'c#',
+  cpp: 'c++',
+  express: 'express',
+  mongodb: 'mongodb',
+  postgres: 'postgresql',
+  mysql: 'mysql',
+  redis: 'redis',
+  aws: 'amazon web services',
+  'aws-sdk': 'amazon web services',
 }
 
 function statusBadgeVariant(status: HealthStatus | undefined) {
@@ -93,16 +173,40 @@ function ChecklistStatusIcon({ status }: { status: HealthStatus }) {
   return <CircleHelp className="size-4 text-muted-foreground" aria-hidden />
 }
 
+function toAbsoluteSvglRoute(route: string) {
+  return route.startsWith('http')
+    ? route
+    : `https://svgl.app${route.startsWith('/') ? route : `/${route}`}`
+}
+
+function normalizeSvglRoute(route: SvglApiEntry['route']) {
+  if (typeof route === 'string') {
+    return toAbsoluteSvglRoute(route)
+  }
+  if (route.dark) {
+    return toAbsoluteSvglRoute(route.dark)
+  }
+  if (route.light) {
+    return toAbsoluteSvglRoute(route.light)
+  }
+  return null
+}
+
 export function RepoHealthSetup() {
   const [pat, setPat] = useState('')
-  const [policy, setPolicy] = useState<PackagePolicy>('any-newer')
   const [filter, setFilter] = useState<DashboardFilter>('all')
+  const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
   const [connectionState, setConnectionState] = useState<ConnectionState | null>(null)
   const [repositories, setRepositories] = useState<RepositoryHealthCard[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [repositoriesError, setRepositoriesError] = useState<string | null>(null)
+  const [detailRepository, setDetailRepository] = useState<RepositoryHealthCard | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [svglMap, setSvglMap] = useState<Record<string, string>>({})
   const [loadingState, setLoadingState] = useState({
     connecting: false,
+    deletingConnection: false,
     loadingConnection: true,
     loadingRepositories: true,
     scanningAll: false,
@@ -132,28 +236,93 @@ export function RepoHealthSetup() {
     return repositories.filter((repository) => needsAttention(repository.lastScanStatus))
   }, [filter, repositories])
 
+  const sortedRepositories = useMemo(() => {
+    const list = [...filteredRepositories]
+    if (sortBy === 'alphabetical') {
+      return list.sort((a, b) => a.fullName.localeCompare(b.fullName))
+    }
+    if (sortBy === 'created-desc') {
+      return list.sort((a, b) => {
+        const aCreated = a.githubCreatedAt ?? a._creationTime
+        const bCreated = b.githubCreatedAt ?? b._creationTime
+        return bCreated - aCreated
+      })
+    }
+    return list.sort((a, b) => {
+      const aUpdated = a.githubUpdatedAt ?? a.pushedAt ?? a.lastScanAt ?? 0
+      const bUpdated = b.githubUpdatedAt ?? b.pushedAt ?? b.lastScanAt ?? 0
+      return bUpdated - aUpdated
+    })
+  }, [filteredRepositories, sortBy])
+
   const filterCounts = useMemo(() => {
     const all = repositories.length
     const healthy = repositories.filter((repository) => repository.lastScanStatus === 'ok').length
-    const needs = repositories.filter((repository) => needsAttention(repository.lastScanStatus)).length
+    const needs = repositories.filter((repository) =>
+      needsAttention(repository.lastScanStatus)
+    ).length
     return { all, healthy, needs }
+  }, [repositories])
+
+  const lastScanAllRunAt = useMemo(() => {
+    const latest = repositories.reduce<number>(
+      (maxTimestamp, repository) => Math.max(maxTimestamp, repository.lastScanAt ?? 0),
+      0
+    )
+    return latest > 0 ? latest : null
   }, [repositories])
 
   useEffect(() => {
     void loadConnection()
     void loadRepositories()
+    void loadSvglCatalog()
   }, [])
+
+  async function loadSvglCatalog() {
+    try {
+      const response = await fetch('https://api.svgl.app?limit=1500')
+      if (!response.ok) {
+        return
+      }
+      const payload = (await response.json()) as SvglApiEntry[]
+      const entries: Record<string, string> = {}
+      for (const item of payload) {
+        const normalizedRoute = normalizeSvglRoute(item.route)
+        if (!normalizedRoute) {
+          continue
+        }
+        entries[item.title.toLowerCase()] = normalizedRoute
+      }
+      setSvglMap(entries)
+    } catch {
+      // Ignore external logo API errors and keep dashboard functional.
+    }
+  }
 
   async function loadConnection() {
     setLoadingState((prev) => ({ ...prev, loadingConnection: true }))
     const response = await fetch('/api/github-connection')
     const payload = (await response.json()) as ConnectionState | { error: string }
     if ('error' in payload) {
-      setMessage(payload.error)
+      setMessage(payload.error ?? 'GitHub connection failed')
     } else {
       setConnectionState(payload)
-      if (payload.packagePolicy) {
-        setPolicy(payload.packagePolicy)
+
+      const isMissingAccountProfile =
+        payload.connected &&
+        !payload.accountLogin &&
+        !payload.accountName &&
+        !payload.accountAvatarUrl &&
+        !payload.accountHtmlUrl
+
+      if (isMissingAccountProfile) {
+        const refreshResponse = await fetch('/api/github-connection', { method: 'PUT' })
+        const refreshedPayload = (await refreshResponse.json()) as
+          | ConnectionState
+          | { error: string }
+        if (!('error' in refreshedPayload)) {
+          setConnectionState(refreshedPayload)
+        }
       }
     }
     setLoadingState((prev) => ({ ...prev, loadingConnection: false }))
@@ -173,6 +342,42 @@ export function RepoHealthSetup() {
     setLoadingState((prev) => ({ ...prev, loadingRepositories: false }))
   }
 
+  async function pollQueuedScans(targetRepositoryId?: string) {
+    const pollStartedAt = Date.now()
+    let attempts = 0
+    const interval = setInterval(async () => {
+      attempts += 1
+      try {
+        const response = await fetch('/api/scans')
+        const payload = (await response.json()) as RepositoryHealthCard[] | { error: string }
+        if ('error' in payload) {
+          return
+        }
+
+        setRepositories(payload)
+
+        const hasCompleted = targetRepositoryId
+          ? payload.some(
+              (repo) => repo._id === targetRepositoryId && (repo.lastScanAt ?? 0) >= pollStartedAt
+            )
+          : payload.some((repo) => (repo.lastScanAt ?? 0) >= pollStartedAt)
+
+        if (hasCompleted || attempts >= 12) {
+          clearInterval(interval)
+          setMessage(
+            hasCompleted
+              ? 'Scan finished and dashboard updated'
+              : 'Scan is still running in the background. Refresh later if needed.'
+          )
+        }
+      } catch {
+        if (attempts >= 12) {
+          clearInterval(interval)
+        }
+      }
+    }, 3500)
+  }
+
   async function connectWithPat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLoadingState((prev) => ({ ...prev, connecting: true }))
@@ -181,10 +386,7 @@ export function RepoHealthSetup() {
     const response = await fetch('/api/github-connection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        pat,
-        packagePolicy: policy,
-      }),
+      body: JSON.stringify({ pat }),
     })
 
     const payload = (await response.json()) as
@@ -192,7 +394,7 @@ export function RepoHealthSetup() {
       | { error: string }
 
     if ('error' in payload) {
-      setMessage(payload.error)
+      setMessage(payload.error ?? 'GitHub connection failed')
     } else if (!payload.ok) {
       setMessage(payload.error ?? 'GitHub connection failed')
     } else {
@@ -203,21 +405,6 @@ export function RepoHealthSetup() {
     await loadConnection()
     await loadRepositories()
     setLoadingState((prev) => ({ ...prev, connecting: false }))
-  }
-
-  async function updatePolicy(nextPolicy: PackagePolicy) {
-    setPolicy(nextPolicy)
-    const response = await fetch('/api/github-connection', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ packagePolicy: nextPolicy }),
-    })
-
-    const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
-    if ('error' in payload || !payload.ok) {
-      setMessage('Failed to update package policy')
-    }
-    await loadConnection()
   }
 
   async function triggerScanAll() {
@@ -232,7 +419,8 @@ export function RepoHealthSetup() {
     if ('error' in payload || !payload.ok) {
       setMessage('Failed to trigger scan all')
     } else {
-      setMessage('Scan all queued')
+      setMessage('Scan all queued. Watching for updates...')
+      void pollQueuedScans()
     }
     setLoadingState((prev) => ({ ...prev, scanningAll: false }))
   }
@@ -249,204 +437,509 @@ export function RepoHealthSetup() {
     if ('error' in payload || !payload.ok) {
       setMessage('Failed to trigger repository scan')
     } else {
-      setMessage('Repository scan queued')
+      setMessage('Repository scan queued. Watching for updates...')
+      void pollQueuedScans(repositoryId)
     }
     setLoadingState((prev) => ({ ...prev, scanningSingle: '' }))
   }
 
+  async function deletePatConnection() {
+    setLoadingState((prev) => ({ ...prev, deletingConnection: true }))
+    setMessage(null)
+
+    const response = await fetch('/api/github-connection', {
+      method: 'DELETE',
+    })
+
+    const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
+    if ('error' in payload || !payload.ok) {
+      setMessage('Failed to delete GitHub connection')
+    } else {
+      setPat('')
+      setConnectionState(null)
+      setMessage('GitHub token removed')
+      setDeleteDialogOpen(false)
+      await loadConnection()
+      await loadRepositories()
+    }
+
+    setLoadingState((prev) => ({ ...prev, deletingConnection: false }))
+  }
+
+  function findStackLogos(repository: RepositoryHealthCard): StackLogo[] {
+    const seen = new Set<string>()
+    const logos: StackLogo[] = []
+
+    const language = repository.primaryLanguage?.toLowerCase().trim()
+    if (language) {
+      const normalizedLanguage = stackAlias[language] ?? language
+      const languageLogo = svglMap[normalizedLanguage]
+      if (languageLogo) {
+        logos.push({ name: normalizedLanguage, iconUrl: languageLogo })
+        seen.add(normalizedLanguage)
+      }
+    }
+
+    for (const finding of repository.packageFindings) {
+      const pkg = finding.packageName.toLowerCase()
+      const normalized = stackAlias[pkg] ?? pkg
+      if (seen.has(normalized)) {
+        continue
+      }
+
+      const route = svglMap[normalized]
+      if (!route) {
+        continue
+      }
+
+      logos.push({ name: normalized, iconUrl: route })
+      seen.add(normalized)
+      if (logos.length >= 4) {
+        break
+      }
+    }
+
+    return logos
+  }
+
+  function getRepositoryDisplayName(fullName: string) {
+    const parts = fullName.split('/')
+    return parts[parts.length - 1] ?? fullName
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Repo Health Monitor</h1>
-          <p className="text-sm text-muted-foreground">
-            Dependency freshness, checklist health, and repository scan controls.
-          </p>
+    <>
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-4 py-7 sm:px-6 lg:px-8">
+        <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/60 bg-linear-to-br from-card via-card to-muted/20 px-5 py-4 shadow-sm">
+          <div className="min-w-0">
+            <h1 className="font-heading text-3xl leading-tight tracking-tight">
+              Repo Health Monitor
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Dependency freshness, checklist health, and repository scan controls.
+            </p>
+            {connectionState?.connected ? (
+              <div className="mt-3 flex items-center gap-3">
+                {connectionState.accountAvatarUrl ? (
+                  <img
+                    src={connectionState.accountAvatarUrl}
+                    alt="GitHub avatar"
+                    className="size-9 rounded-full border border-border/70 object-cover"
+                  />
+                ) : (
+                  <div className="size-9 rounded-full border border-border/70 bg-muted" />
+                )}
+                <div className="min-w-0">
+                  {connectionState.accountHtmlUrl ? (
+                    <a
+                      href={connectionState.accountHtmlUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-sm font-semibold text-foreground underline-offset-2 hover:underline"
+                    >
+                      {connectionState.accountName ??
+                        connectionState.accountLogin ??
+                        'Unknown account'}
+                    </a>
+                  ) : (
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {connectionState.accountName ??
+                        connectionState.accountLogin ??
+                        'Unknown account'}
+                    </p>
+                  )}
+                  {connectionState.accountLogin ? (
+                    <p className="text-xs text-muted-foreground">@{connectionState.accountLogin}</p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
+            {connectionBadge.text}
+          </Badge>
         </div>
-        <Badge variant={connectionBadge.variant}>{connectionBadge.text}</Badge>
+
+        {message ? (
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-2 text-sm text-foreground">
+            {message}
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card className="gap-3 border-border/60 bg-linear-to-br from-card to-muted/20 py-4 shadow-sm">
+            <CardHeader className="gap-1 px-5">
+              <CardTitle className="text-lg">GitHub connection</CardTitle>
+              <CardDescription>Configure your PAT connection.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 px-5 pb-1">
+              <form onSubmit={connectWithPat} className="space-y-2.5">
+                {!connectionState?.connected ? (
+                  <>
+                    <Input
+                      type="password"
+                      placeholder="GitHub PAT (classic or fine-grained)"
+                      value={pat}
+                      onChange={(event) => setPat(event.target.value)}
+                      required
+                      className="h-10 rounded-xl"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={loadingState.connecting}
+                      className="h-9 rounded-full px-5"
+                    >
+                      {loadingState.connecting ? 'Connecting...' : 'Connect GitHub'}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="pt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-full px-5"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      disabled={loadingState.deletingConnection}
+                    >
+                      <TrashIcon />
+                      Delete token
+                    </Button>
+                  </div>
+                )}
+              </form>
+
+              {loadingState.loadingConnection ? (
+                <p className="text-sm text-muted-foreground">Loading connection...</p>
+              ) : (
+                <div className="grid gap-1.5 text-xs text-muted-foreground">
+                  <p>Current state: {connectionState?.status ?? 'unknown'}</p>
+                  {connectionState?.rateLimitResetAt ? (
+                    <p>
+                      Rate limit resets:{' '}
+                      {new Date(connectionState.rateLimitResetAt).toLocaleString()}
+                    </p>
+                  ) : null}
+                  {connectionState?.lastValidatedAt ? (
+                    <p>Validated: {new Date(connectionState.lastValidatedAt).toLocaleString()}</p>
+                  ) : null}
+                  {connectionState?.lastError ? <p>Error: {connectionState.lastError}</p> : null}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="gap-3 border-border/60 bg-linear-to-br from-card to-muted/20 py-4 shadow-sm">
+            <CardHeader className="gap-1 px-5">
+              <CardTitle className="text-lg">Dashboard controls</CardTitle>
+              <CardDescription>Filter, sort, and trigger scans.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 px-5 pb-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={() => void triggerScanAll()}
+                  disabled={loadingState.scanningAll}
+                  className="h-9 rounded-full px-5"
+                >
+                  {loadingState.scanningAll ? 'Queueing scan...' : 'Scan all repositories'}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Last run:{' '}
+                  {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString() : 'Never'}
+                </p>
+                <p className="text-xs text-muted-foreground">Total repos: {repositories.length}</p>
+              </div>
+
+              <div className="inline-flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-background/80 p-1.5">
+                <Button
+                  size="sm"
+                  className="rounded-full"
+                  variant={filter === 'all' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('all')}
+                >
+                  All ({filterCounts.all})
+                </Button>
+                <Button
+                  size="sm"
+                  className="rounded-full"
+                  variant={filter === 'needs-attention' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('needs-attention')}
+                >
+                  Needs attention ({filterCounts.needs})
+                </Button>
+                <Button
+                  size="sm"
+                  className="rounded-full"
+                  variant={filter === 'healthy' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('healthy')}
+                >
+                  Healthy ({filterCounts.healthy})
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-background/80 p-1.5">
+                <span className="px-1 text-xs text-muted-foreground">Sort by</span>
+                <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                  <SelectTrigger className="w-[180px] rounded-full" size="sm">
+                    <SelectValue placeholder="Select sorting" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {loadingState.loadingRepositories ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Card key={index} className="h-full">
+                <CardHeader>
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-4 w-20" />
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-9 w-20" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : repositoriesError ? (
+          <Card>
+            <CardContent className="pt-6 text-sm text-destructive">{repositoriesError}</CardContent>
+          </Card>
+        ) : sortedRepositories.length === 0 ? (
+          <Card>
+            <CardContent className="pt-6 text-sm text-muted-foreground">
+              {repositories.length === 0
+                ? 'No repositories found yet. Connect GitHub and run a scan.'
+                : 'No repositories match the current filter.'}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {sortedRepositories.map((repository) => {
+              const status = repository.lastScanStatus ?? 'unknown'
+              const outdatedPackages = repository.packageFindings.filter(
+                (finding) => finding.status === 'warning'
+              )
+              const failedChecklist = repository.checklistFindings.filter((finding) =>
+                needsAttention(finding.status)
+              )
+              const stackLogos = findStackLogos(repository)
+
+              return (
+                <Card key={repository._id} className="h-full">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <span className="line-clamp-1">
+                        {getRepositoryDisplayName(repository.fullName)}
+                      </span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 shrink-0"
+                        asChild
+                        aria-label="Open GitHub repository"
+                        title="Open GitHub repository"
+                      >
+                        <a href={repository.htmlUrl} target="_blank" rel="noreferrer">
+                          <Link2Icon />
+                        </a>
+                      </Button>
+                    </CardTitle>
+                    <CardDescription className="flex items-center gap-2">
+                      <Badge variant="outline">{repository.visibility}</Badge>
+                      <Badge variant={statusBadgeVariant(status)}>{status}</Badge>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex h-full flex-col justify-between gap-4">
+                    <div className="space-y-3">
+                      <div className="flex min-h-8 items-center gap-2">
+                        {stackLogos.length > 0 ? (
+                          stackLogos.map((logo) => (
+                            <img
+                              key={`${repository._id}-${logo.name}`}
+                              src={logo.iconUrl}
+                              alt={logo.name}
+                              title={logo.name}
+                              className="size-6"
+                            />
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            No stack logos detected
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid gap-1 text-xs text-muted-foreground">
+                        {repository.hasPackageJson === false ? (
+                          <p>No package.json found</p>
+                        ) : (
+                          <p>
+                            Outdated packages:{' '}
+                            <span className="font-semibold text-foreground">
+                              {outdatedPackages.length}
+                            </span>
+                          </p>
+                        )}
+                        <p>
+                          Checklist warnings:{' '}
+                          <span className="font-semibold text-foreground">
+                            {failedChecklist.length}
+                          </span>
+                        </p>
+                        <p className="text-[11px] leading-relaxed">
+                          Created{' '}
+                          {new Date(
+                            repository.githubCreatedAt ?? repository._creationTime
+                          ).toLocaleDateString()}
+                          {' · '}Updated{' '}
+                          {new Date(
+                            repository.githubUpdatedAt ??
+                              repository.pushedAt ??
+                              repository.lastScanAt ??
+                              repository._creationTime
+                          ).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="size-8 text-amber-600 hover:bg-amber-50"
+                          onClick={() => {
+                            setDetailRepository(repository)
+                            setDetailOpen(true)
+                          }}
+                          aria-label="Open details"
+                          title="Warnings and details"
+                        >
+                          <ExclamationTriangleIcon />
+                        </Button>
+                      </div>
+
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="size-8"
+                        onClick={() => void triggerScanSingle(repository._id)}
+                        disabled={loadingState.scanningSingle === repository._id}
+                        aria-label="Scan repository"
+                        title="Scan repository"
+                      >
+                        <ReloadIcon
+                          className={
+                            loadingState.scanningSingle === repository._id ? 'animate-spin' : ''
+                          }
+                        />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {message ? (
-        <Card>
-          <CardContent className="pt-6 text-sm">{message}</CardContent>
-        </Card>
-      ) : null}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{detailRepository?.fullName ?? 'Repository details'}</DialogTitle>
+            <DialogDescription>Package update findings and checklist details.</DialogDescription>
+          </DialogHeader>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>GitHub connection</CardTitle>
-          <CardDescription>Configure your PAT and package update policy.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <form onSubmit={connectWithPat} className="space-y-3">
-            <Input
-              type="password"
-              placeholder="GitHub PAT (classic or fine-grained)"
-              value={pat}
-              onChange={(event) => setPat(event.target.value)}
-              required
-            />
-            <div className="flex flex-wrap gap-2">
-              {packagePolicyOptions.map((option) => (
-                <Button
-                  key={option.value}
-                  type="button"
-                  variant={policy === option.value ? 'default' : 'outline'}
-                  onClick={() => void updatePolicy(option.value)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-            <Button type="submit" disabled={loadingState.connecting}>
-              {loadingState.connecting ? 'Connecting…' : 'Connect GitHub'}
-            </Button>
-          </form>
-
-          {loadingState.loadingConnection ? (
-            <p className="text-sm text-muted-foreground">Loading connection…</p>
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              <p>Current state: {connectionState?.status ?? 'unknown'}</p>
-              {connectionState?.rateLimitResetAt ? (
-                <p>
-                  Rate limit resets: {new Date(connectionState.rateLimitResetAt).toLocaleString()}
-                </p>
-              ) : null}
-              {connectionState?.lastValidatedAt ? (
-                <p>Validated: {new Date(connectionState.lastValidatedAt).toLocaleString()}</p>
-              ) : null}
-              {connectionState?.lastError ? <p>Error: {connectionState.lastError}</p> : null}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Dashboard controls</CardTitle>
-          <CardDescription>Filter repository health and trigger scans.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void triggerScanAll()} disabled={loadingState.scanningAll}>
-            {loadingState.scanningAll ? 'Queueing scan…' : 'Scan all repositories'}
-          </Button>
-          <Button variant={filter === 'all' ? 'default' : 'outline'} onClick={() => setFilter('all')}>
-            All ({filterCounts.all})
-          </Button>
-          <Button
-            variant={filter === 'needs-attention' ? 'default' : 'outline'}
-            onClick={() => setFilter('needs-attention')}
-          >
-            Needs attention ({filterCounts.needs})
-          </Button>
-          <Button
-            variant={filter === 'healthy' ? 'default' : 'outline'}
-            onClick={() => setFilter('healthy')}
-          >
-            Healthy ({filterCounts.healthy})
-          </Button>
-        </CardContent>
-      </Card>
-
-      {loadingState.loadingRepositories ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Card key={index}>
-              <CardHeader>
-                <Skeleton className="h-5 w-48" />
-                <Skeleton className="h-4 w-20" />
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-4/5" />
-                <Skeleton className="h-9 w-20" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : repositoriesError ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-destructive">{repositoriesError}</CardContent>
-        </Card>
-      ) : filteredRepositories.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-muted-foreground">
-            {repositories.length === 0
-              ? 'No repositories found yet. Connect GitHub and run a scan.'
-              : 'No repositories match the current filter.'}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filteredRepositories.map((repository) => {
-            const status = repository.lastScanStatus ?? 'unknown'
-            const outdatedPackages = repository.packageFindings.filter((finding) => finding.status === 'warning')
-
-            return (
-              <Card key={repository._id}>
-                <CardHeader>
-                  <CardTitle className="text-base">{repository.fullName}</CardTitle>
-                  <CardDescription className="flex items-center gap-2">
-                    <Badge variant="outline">{repository.visibility}</Badge>
-                    <Badge variant={statusBadgeVariant(status)}>{status}</Badge>
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="text-xs text-muted-foreground">
-                    <p>
-                      Last scan:{' '}
-                      {repository.lastScanAt
-                        ? new Date(repository.lastScanAt).toLocaleString()
-                        : 'Not scanned yet'}
-                    </p>
-                    <p>
-                      Outdated packages:{' '}
-                      <span className="font-medium text-foreground">{outdatedPackages.length}</span>
-                    </p>
+          {detailRepository ? (
+            <div className="space-y-4 text-sm">
+              <div>
+                <h3 className="mb-2 font-semibold">Package updates</h3>
+                {detailRepository.packageFindings.length === 0 ? (
+                  <p className="text-muted-foreground">No package findings available.</p>
+                ) : (
+                  <div className="max-h-56 space-y-1 overflow-auto rounded-md border border-border/60 p-3 text-xs">
+                    {detailRepository.packageFindings.map((finding) => (
+                      <p key={finding._id}>
+                        <span className="font-medium">{finding.packageName}</span>:{' '}
+                        {finding.currentVersion}
+                        {' -> '}
+                        {finding.latestVersion} ({finding.status})
+                      </p>
+                    ))}
                   </div>
+                )}
+              </div>
 
-                  {outdatedPackages.length > 0 ? (
-                    <div className="space-y-1 text-xs">
-                      {outdatedPackages.slice(0, 5).map((finding) => (
-                        <p key={finding._id} className="truncate">
-                          {finding.packageName}: {finding.currentVersion} → {finding.latestVersion}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-
+              <div>
+                <h3 className="mb-2 font-semibold">Checklist</h3>
+                {detailRepository.checklistFindings.length === 0 ? (
+                  <p className="text-muted-foreground">No checklist findings available.</p>
+                ) : (
                   <div className="space-y-2">
-                    {repository.checklistFindings.map((finding) => (
+                    {detailRepository.checklistFindings.map((finding) => (
                       <div key={finding._id} className="flex items-start gap-2 text-xs">
                         <ChecklistStatusIcon status={finding.status} />
                         <span>
                           <span className="font-medium">
                             {checklistLabels[finding.checkKey] ?? finding.checkKey}
                           </span>
-                          {finding.detail ? ` — ${finding.detail}` : ''}
+                          {finding.detail ? ` - ${finding.detail}` : ''}
                         </span>
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
 
-                  {repository.lastScanError ? (
-                    <p className="text-xs text-destructive">{repository.lastScanError}</p>
-                  ) : null}
+              {detailRepository.lastScanError ? (
+                <p className="text-xs text-destructive">
+                  Last scan error: {detailRepository.lastScanError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
-                  <Button
-                    variant="outline"
-                    onClick={() => void triggerScanSingle(repository._id)}
-                    disabled={loadingState.scanningSingle === repository._id}
-                  >
-                    {loadingState.scanningSingle === repository._id ? 'Queueing…' : 'Scan repository'}
-                  </Button>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-    </div>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete GitHub token?</DialogTitle>
+            <DialogDescription>
+              This removes the saved PAT and disconnects the dashboard from GitHub.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={loadingState.deletingConnection}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void deletePatConnection()}
+              disabled={loadingState.deletingConnection}
+            >
+              {loadingState.deletingConnection ? 'Deleting...' : 'Delete token'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

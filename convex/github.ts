@@ -49,12 +49,26 @@ export async function fetchGitHubJson<T>(path: string, options: FetchJsonOptions
 export async function validatePat(token: string): Promise<{
   status: 'connected' | 'invalid' | 'rate-limited'
   login?: string
+  name?: string
+  avatarUrl?: string
+  htmlUrl?: string
   rateLimitResetAt?: number
   error?: string
 }> {
   try {
-    const user = await fetchGitHubJson<{ login: string }>('/user', { token })
-    return { status: 'connected', login: user.login }
+    const user = await fetchGitHubJson<{
+      login: string
+      name?: string | null
+      avatar_url?: string
+      html_url?: string
+    }>('/user', { token })
+    return {
+      status: 'connected',
+      login: user.login,
+      name: user.name ?? undefined,
+      avatarUrl: user.avatar_url,
+      htmlUrl: user.html_url,
+    }
   } catch (error) {
     if (error instanceof GitHubHttpError) {
       if (error.status === 403 && error.rateLimitResetAt) {

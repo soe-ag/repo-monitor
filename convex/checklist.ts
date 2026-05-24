@@ -47,8 +47,8 @@ export function evaluateReadmeFreshness(
     checkKey: 'readme-freshness',
     status: isStale ? 'stale' : 'ok',
     detail: isStale
-      ? 'README was updated more than 180 days ago'
-      : 'README updated within 180 days',
+      ? 'README was updated more than 6 months ago'
+      : 'README updated within 6 months',
   }
 }
 

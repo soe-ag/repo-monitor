@@ -18,12 +18,16 @@ describe('RepoHealthSetup', () => {
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input)
+        if (url.startsWith('https://api.svgl.app')) {
+          return mockJsonResponse([])
+        }
         if (url.endsWith('/api/github-connection')) {
           return mockJsonResponse({
             status: 'connected',
             connected: true,
             packagePolicy: 'any-newer',
             lastValidatedAt: 1700000000000,
+            accountLogin: 'acme',
           })
         }
 
@@ -69,10 +73,16 @@ describe('RepoHealthSetup', () => {
 
     render(<RepoHealthSetup />)
 
-    expect(await screen.findByText('acme/repo-monitor')).toBeInTheDocument()
+    expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
     expect(screen.getByText(/Outdated packages:/)).toBeInTheDocument()
-    expect(screen.getByText(/react: 19.0.0/)).toBeInTheDocument()
-    expect(screen.getByText(/Dependabot/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByLabelText('Open details')[0])
+
+    expect(
+      await screen.findByText(/Package update findings and checklist details/)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/react/)).toBeInTheDocument()
+    expect(screen.getByText(/Dependabot config file missing/)).toBeInTheDocument()
   })
 
   it('shows empty state for healthy filter when no healthy repositories exist', async () => {
@@ -80,11 +90,15 @@ describe('RepoHealthSetup', () => {
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input)
+        if (url.startsWith('https://api.svgl.app')) {
+          return mockJsonResponse([])
+        }
         if (url.endsWith('/api/github-connection')) {
           return mockJsonResponse({
             status: 'connected',
             connected: true,
             packagePolicy: 'any-newer',
+            accountLogin: 'acme',
           })
         }
         if (url.endsWith('/api/scans')) {
@@ -104,7 +118,7 @@ describe('RepoHealthSetup', () => {
     )
 
     render(<RepoHealthSetup />)
-    expect(await screen.findByText('acme/repo-monitor')).toBeInTheDocument()
+    expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Healthy/ }))
 

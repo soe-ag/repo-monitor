@@ -13,10 +13,6 @@ export function getConvexHttpClient() {
   }
 
   client = new ConvexHttpClient(deploymentUrl)
-  const adminKey = process.env.CONVEX_ADMIN_KEY
-  if (adminKey) {
-    client.setAdminAuth(adminKey)
-  }
+
   return client
 }
-
