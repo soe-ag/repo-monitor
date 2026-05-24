@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Repo Health Monitor V1 Plan</title>
+    <style>
+      :root {
+        --bg: #f7f6f2;
+        --card: #fffdf7;
+        --text: #1f2328;
+        --muted: #5b6470;
+        --accent: #0f766e;
+        --warn: #b45309;
+        --border: #d9d4c7;
+        --ok: #166534;
+        --chip-bg: #eef6f5;
+        --chip-text: #115e59;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: 'Source Serif 4', 'Segoe UI', Georgia, serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 10% 10%, #f3ede0 0, transparent 35%),
+          radial-gradient(circle at 90% 20%, #e6f4f1 0, transparent 40%), var(--bg);
+        line-height: 1.6;
+      }
+
+      .wrap {
+        max-width: 960px;
+        margin: 32px auto;
+        padding: 0 16px 48px;
+      }
+
+      .hero {
+        border: 1px solid var(--border);
+        background: linear-gradient(120deg, #fffdf7, #f9f8f2);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: 'Space Grotesk', 'Segoe UI', Arial, sans-serif;
+        line-height: 1.2;
+        margin: 0 0 12px;
+      }
+
+      h1 {
+        font-size: 2rem;
+      }
+      h2 {
+        font-size: 1.35rem;
+        margin-top: 28px;
+      }
+      h3 {
+        font-size: 1.1rem;
+        margin-top: 18px;
+      }
+
+      p {
+        margin: 8px 0;
+      }
+      .muted {
+        color: var(--muted);
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .chip {
+        background: var(--chip-bg);
+        color: var(--chip-text);
+        border: 1px solid #cce6e2;
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.9rem;
+        font-family: 'Space Grotesk', 'Segoe UI', Arial, sans-serif;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+        margin-top: 14px;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+
+      ol,
+      ul {
+        margin: 8px 0 0 20px;
+      }
+      li {
+        margin: 6px 0;
+      }
+
+      code {
+        background: #efece3;
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+        font-size: 0.9em;
+      }
+
+      .footer-note {
+        margin-top: 22px;
+        padding: 12px;
+        border-left: 4px solid var(--warn);
+        background: #fff7ed;
+        border-radius: 8px;
+        color: #7c2d12;
+      }
+
+      @media (min-width: 860px) {
+        .grid.two {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <h1>Plan: Repo Health Monitor V1</h1>
+        <p class="muted">
+          Build a GitHub repo health dashboard with Next.js + Convex to scan private/public repos,
+          flag outdated packages, and show checklist health at a glance.
+        </p>
+        <div class="chips">
+          <span class="chip">Auth: PAT first</span>
+          <span class="chip">Scope: Private + Public repos</span>
+          <span class="chip">Scan: Weekly + Manual</span>
+          <span class="chip">Policy: Configurable updates</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>Why This Approach</h2>
+        <p>
+          Personal Access Token (PAT) is the easiest implementation path for V1. The GitHub
+          integration will be abstracted so OAuth can be added later without rewriting scan logic.
+        </p>
+      </section>
+
+      <section>
+        <h2>V1 Scope</h2>
+        <div class="grid two">
+          <article class="card">
+            <h3>Dashboard</h3>
+            <ul>
+              <li>List all accessible repos (private + public)</li>
+              <li>Display repo cards with package and checklist status</li>
+              <li>Show last scan time and health summary</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Checklist Items</h3>
+            <ul>
+              <li>Tests configured</li>
+              <li>CI/CD workflow exists in <code>.github/workflows</code></li>
+              <li><code>README.md</code> exists</li>
+              <li>README updated within 180 days</li>
+              <li>Dependabot config exists</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Phased Implementation</h2>
+
+        <article class="card">
+          <h3>Phase 0: Contracts</h3>
+          <ol>
+            <li>
+              Define status taxonomy: <code>ok</code>, <code>warning</code>, <code>missing</code>,
+              <code>stale</code>, <code>error</code>, <code>unknown</code>
+            </li>
+            <li>Set README stale threshold to 180 days</li>
+            <li>Define package policy enum and default behavior</li>
+          </ol>
+        </article>
+
+        <article class="card">
+          <h3>Phase 1: GitHub Connection</h3>
+          <ol>
+            <li>Implement PAT connection + validation</li>
+            <li>Store connection state and expose UI feedback</li>
+            <li>Create token-source abstraction for future OAuth</li>
+          </ol>
+        </article>
+
+        <article class="card">
+          <h3>Phase 2: Convex Backend</h3>
+          <ol>
+            <li>
+              Add schema tables: connections, repos, package findings, checklist findings, scan runs
+            </li>
+            <li>
+              Build scan actions for repos, package.json parsing, version checks, checklist checks
+            </li>
+            <li>Implement weekly scheduled scan + manual scan endpoints</li>
+            <li>Support partial failures per repo</li>
+          </ol>
+        </article>
+
+        <article class="card">
+          <h3>Phase 3: Frontend Dashboard</h3>
+          <ol>
+            <li>Replace starter page with responsive repo-card grid</li>
+            <li>Show outdated package counts + per-package details</li>
+            <li>Render checklist indicators and warnings</li>
+            <li>Add filters (all / needs attention / healthy)</li>
+            <li>Add scan controls (scan all / per repo)</li>
+          </ol>
+        </article>
+
+        <article class="card">
+          <h3>Phase 4: Verification</h3>
+          <ol>
+            <li>Unit tests for semver and checklist evaluators</li>
+            <li>Integration tests for GitHub ingestion edge cases</li>
+            <li>UI tests for card/status rendering</li>
+            <li>CI gate: lint, typecheck, test, build</li>
+          </ol>
+        </article>
+      </section>
+
+      <section>
+        <h2>Relevant Project Files</h2>
+        <ul>
+          <li><code>package.json</code></li>
+          <li><code>convex/schema.ts</code></li>
+          <li><code>app/page.tsx</code></li>
+          <li><code>components/ui/card.tsx</code></li>
+          <li><code>components/ui/badge.tsx</code></li>
+          <li><code>components/ui/skeleton.tsx</code></li>
+          <li><code>.github/workflows/ci.yml</code></li>
+        </ul>
+      </section>
+
+      <div class="footer-note">
+        <strong>V1.1 recommendation:</strong> Add Branch Protection as a checklist rule for stronger
+        repository governance.
+      </div>
+    </main>
+  </body>
+</html>

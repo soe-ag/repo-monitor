@@ -2,17 +2,34 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+First, install dependencies and run the development servers:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
+
+Set environment variables before running:
+
+```bash
+NEXT_PUBLIC_CONVEX_URL=https://<your-deployment>.convex.cloud
+# Optional for server-side API route calls:
+CONVEX_ADMIN_KEY=<your-convex-admin-key>
+```
+
+## Repo health monitor (Phase 1 + 2)
+
+Implemented foundations:
+
+- GitHub PAT connection flow with validation and connection status (`connected`, `invalid`, `rate-limited`)
+- Convex schema for connections, repositories, package findings, checklist findings, and scan runs
+- Scanner actions for:
+  - syncing accessible private/public repositories
+  - parsing `package.json` dependencies
+  - checking newer package versions
+  - checklist evaluation (tests, CI workflow, README, README freshness, Dependabot)
+- Partial-failure scan behavior with per-repo error recording
+- Weekly scheduled scan via Convex cron and manual scan triggers via UI/API
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
