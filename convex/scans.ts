@@ -53,6 +53,8 @@ type PackageFinding = {
   status: HealthStatus
 }
 
+const MAX_DEPENDENCIES_TO_SCAN = 300
+
 export const listRepositories = query({
   args: {
     connectionKey: v.optional(v.string()),
@@ -73,6 +75,69 @@ export const listRepositories = query({
       .query('repositories')
       .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
       .collect()
+  },
+})
+
+export const getRepositoryForScan = query({
+  args: {
+    repositoryId: v.id('repositories'),
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const connection = await ctx.db
+      .query('githubConnections')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('connectionKey', args.connectionKey ?? DEFAULT_CONNECTION_KEY)
+      )
+      .first()
+
+    if (!connection) {
+      return null
+    }
+
+    const repository = await ctx.db.get(args.repositoryId)
+    if (!repository || repository.connectionId !== connection._id) {
+      return null
+    }
+
+    return repository
+  },
+})
+
+export const getRepositoriesForScan = query({
+  args: {
+    repositoryIds: v.array(v.id('repositories')),
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const connection = await ctx.db
+      .query('githubConnections')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('connectionKey', args.connectionKey ?? DEFAULT_CONNECTION_KEY)
+      )
+      .first()
+
+    if (!connection) {
+      return []
+    }
+
+    const seen = new Set<Id<'repositories'>>()
+    const repositories: Doc<'repositories'>[] = []
+    for (const repositoryId of args.repositoryIds) {
+      if (seen.has(repositoryId)) {
+        continue
+      }
+      seen.add(repositoryId)
+
+      const repository = await ctx.db.get(repositoryId)
+      if (!repository || repository.connectionId !== connection._id) {
+        continue
+      }
+
+      repositories.push(repository)
+    }
+
+    return repositories
   },
 })
 
@@ -333,6 +398,7 @@ export const saveRepositoryScanResult = mutation({
 export const triggerScanAll = mutation({
   args: {
     connectionKey: v.optional(v.string()),
+    repositoryIds: v.optional(v.array(v.id('repositories'))),
   },
   handler: async (ctx, args) => {
     const connection = await ctx.db
@@ -350,9 +416,18 @@ export const triggerScanAll = mutation({
       return { ok: false, message: 'GitHub connection is not valid' } as const
     }
 
+    if ((args.repositoryIds?.length ?? 0) > 10) {
+      return { ok: false, message: 'Select at most 10 repositories per scan' } as const
+    }
+
+    if ((args.repositoryIds?.length ?? 0) === 0) {
+      return { ok: false, message: 'Select repositories to scan (max 10)' } as const
+    }
+
     await ctx.scheduler.runAfter(0, api.scans.scanAllRepositories, {
       connectionKey: args.connectionKey ?? DEFAULT_CONNECTION_KEY,
       scope: 'all',
+      repositoryIds: args.repositoryIds,
     })
 
     return { ok: true } as const
@@ -364,6 +439,36 @@ export const triggerScanSingleRepository = mutation({
     repositoryId: v.id('repositories'),
   },
   handler: async (ctx, args) => {
+    const repository = await ctx.db.get(args.repositoryId)
+    if (!repository) {
+      return { ok: false, message: 'Repository not found' } as const
+    }
+
+    const connection = await ctx.db
+      .query('githubConnections')
+      .withIndex('by_connection_key', (q) => q.eq('connectionKey', DEFAULT_CONNECTION_KEY))
+      .first()
+
+    if (!connection) {
+      return { ok: false, message: 'GitHub connection not found' } as const
+    }
+
+    if (repository.connectionId !== connection._id) {
+      return {
+        ok: false,
+        message: 'Repository does not belong to active GitHub connection',
+      } as const
+    }
+
+    if (connection.status !== 'connected') {
+      return { ok: false, message: 'GitHub connection is not ready' } as const
+    }
+
+    const connectionToken = resolveGitHubToken(connection)
+    if (!connectionToken) {
+      return { ok: false, message: 'OAuth token source is not implemented yet' } as const
+    }
+
     await ctx.scheduler.runAfter(0, api.scans.scanSingleRepository, {
       repositoryId: args.repositoryId,
     })
@@ -386,10 +491,10 @@ export const scanSingleRepository = action({
     repositoryId: v.id('repositories'),
   },
   handler: async (ctx, args) => {
-    const repositories: Doc<'repositories'>[] = await ctx.runQuery(api.scans.listRepositories, {
+    const target: Doc<'repositories'> | null = await ctx.runQuery(api.scans.getRepositoryForScan, {
+      repositoryId: args.repositoryId,
       connectionKey: DEFAULT_CONNECTION_KEY,
     })
-    const target = repositories.find((repo) => repo._id === args.repositoryId)
     if (!target) {
       return { ok: false, message: 'Repository not found' } as const
     }
@@ -397,12 +502,8 @@ export const scanSingleRepository = action({
     const connection = await ctx.runQuery(api.githubConnections.getConnectionForScanner, {
       connectionKey: DEFAULT_CONNECTION_KEY,
     })
-    if (!connection || connection.status !== 'connected') {
+    if (!connection) {
       return { ok: false, message: 'GitHub connection is not ready' } as const
-    }
-    const connectionToken = resolveGitHubToken(connection)
-    if (!connectionToken) {
-      return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }
 
     const scanRunId = await ctx.runMutation(api.scans.createScanRun, {
@@ -410,6 +511,51 @@ export const scanSingleRepository = action({
       scope: 'single',
       repositoryId: target._id,
     })
+
+    if (connection.status !== 'connected') {
+      const repositoryError = 'GitHub connection is not ready'
+      await ctx.runMutation(api.scans.saveRepositoryScanResult, {
+        repositoryId: target._id,
+        scanRunId,
+        hasPackageJson: false,
+        packageFindings: [],
+        checklistFindings: [],
+        repositoryStatus: 'error',
+        repositoryError,
+      })
+      await ctx.runMutation(api.scans.finalizeScanRun, {
+        scanRunId,
+        status: 'failed',
+        scannedCount: 1,
+        successCount: 0,
+        failedCount: 1,
+        errorSummary: repositoryError,
+      })
+      return { ok: false, message: repositoryError } as const
+    }
+
+    const connectionToken = resolveGitHubToken(connection)
+    if (!connectionToken) {
+      const repositoryError = 'OAuth token source is not implemented yet'
+      await ctx.runMutation(api.scans.saveRepositoryScanResult, {
+        repositoryId: target._id,
+        scanRunId,
+        hasPackageJson: false,
+        packageFindings: [],
+        checklistFindings: [],
+        repositoryStatus: 'error',
+        repositoryError,
+      })
+      await ctx.runMutation(api.scans.finalizeScanRun, {
+        scanRunId,
+        status: 'failed',
+        scannedCount: 1,
+        successCount: 0,
+        failedCount: 1,
+        errorSummary: repositoryError,
+      })
+      return { ok: false, message: repositoryError } as const
+    }
 
     try {
       await runRepositoryScan(ctx, {
@@ -441,6 +587,15 @@ export const scanSingleRepository = action({
       })
       return { ok: true } as const
     } catch (error) {
+      await ctx.runMutation(api.scans.saveRepositoryScanResult, {
+        repositoryId: target._id,
+        scanRunId,
+        hasPackageJson: false,
+        packageFindings: [],
+        checklistFindings: [],
+        repositoryStatus: 'error',
+        repositoryError: extractMessage(error),
+      })
       await ctx.runMutation(api.scans.finalizeScanRun, {
         scanRunId,
         status: 'failed',
@@ -458,6 +613,7 @@ export const scanAllRepositories = action({
   args: {
     connectionKey: v.optional(v.string()),
     scope: v.optional(v.union(v.literal('all'), v.literal('scheduled'))),
+    repositoryIds: v.optional(v.array(v.id('repositories'))),
   },
   handler: async (ctx, args) => {
     const connection = await ctx.runQuery(api.githubConnections.getConnectionForScanner, {
@@ -474,32 +630,87 @@ export const scanAllRepositories = action({
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }
 
+    if ((args.repositoryIds?.length ?? 0) > 10) {
+      return { ok: false, message: 'Select at most 10 repositories per scan' } as const
+    }
+
     const scanRunId = await ctx.runMutation(api.scans.createScanRun, {
       connectionId: connection._id,
       scope: args.scope ?? 'all',
     })
 
     try {
-      const reposFromGitHub = await fetchAllRepositories(connectionToken)
-      const repoMap = await ctx.runMutation(api.scans.upsertRepositories, {
-        connectionId: connection._id,
-        repositories: reposFromGitHub.map((repo) => {
-          const visibility: 'public' | 'private' = repo.private ? 'private' : 'public'
-          return {
-            githubId: repo.id,
-            owner: repo.owner.login,
-            name: repo.name,
-            fullName: repo.full_name,
-            primaryLanguage: repo.language ?? undefined,
-            visibility,
-            defaultBranch: repo.default_branch,
-            htmlUrl: repo.html_url,
-            githubCreatedAt: repo.created_at ? new Date(repo.created_at).getTime() : undefined,
-            githubUpdatedAt: repo.updated_at ? new Date(repo.updated_at).getTime() : undefined,
-            pushedAt: repo.pushed_at ? new Date(repo.pushed_at).getTime() : undefined,
+      let reposFromGitHub: GitHubRepository[] = []
+      let repoMap: Record<string, Id<'repositories'>> = {}
+
+      if (args.repositoryIds && args.repositoryIds.length > 0) {
+        const selected: Doc<'repositories'>[] = await ctx.runQuery(
+          api.scans.getRepositoriesForScan,
+          {
+            repositoryIds: args.repositoryIds,
+            connectionKey: args.connectionKey ?? DEFAULT_CONNECTION_KEY,
           }
-        }),
-      })
+        )
+
+        if (selected.length === 0) {
+          await ctx.runMutation(api.scans.finalizeScanRun, {
+            scanRunId,
+            status: 'failed',
+            scannedCount: 0,
+            successCount: 0,
+            failedCount: 0,
+            errorSummary: 'Selected repositories were not found',
+          })
+          return { ok: false, message: 'Selected repositories were not found' } as const
+        }
+
+        reposFromGitHub = selected.map((repository) => ({
+          id: repository.githubId,
+          name: repository.name,
+          full_name: repository.fullName,
+          language: repository.primaryLanguage,
+          private: repository.visibility === 'private',
+          html_url: repository.htmlUrl,
+          default_branch: repository.defaultBranch,
+          created_at: repository.githubCreatedAt
+            ? new Date(repository.githubCreatedAt).toISOString()
+            : new Date(repository._creationTime).toISOString(),
+          updated_at: repository.githubUpdatedAt
+            ? new Date(repository.githubUpdatedAt).toISOString()
+            : new Date(repository._creationTime).toISOString(),
+          owner: {
+            login: repository.owner,
+          },
+          pushed_at: repository.pushedAt
+            ? new Date(repository.pushedAt).toISOString()
+            : new Date(repository._creationTime).toISOString(),
+        }))
+
+        for (const repository of selected) {
+          repoMap[repository.fullName] = repository._id
+        }
+      } else {
+        reposFromGitHub = await fetchAllRepositories(connectionToken)
+        repoMap = await ctx.runMutation(api.scans.upsertRepositories, {
+          connectionId: connection._id,
+          repositories: reposFromGitHub.map((repo) => {
+            const visibility: 'public' | 'private' = repo.private ? 'private' : 'public'
+            return {
+              githubId: repo.id,
+              owner: repo.owner.login,
+              name: repo.name,
+              fullName: repo.full_name,
+              primaryLanguage: repo.language ?? undefined,
+              visibility,
+              defaultBranch: repo.default_branch,
+              htmlUrl: repo.html_url,
+              githubCreatedAt: repo.created_at ? new Date(repo.created_at).getTime() : undefined,
+              githubUpdatedAt: repo.updated_at ? new Date(repo.updated_at).getTime() : undefined,
+              pushedAt: repo.pushed_at ? new Date(repo.pushed_at).getTime() : undefined,
+            }
+          }),
+        })
+      }
 
       let successCount = 0
       let failedCount = 0
@@ -606,7 +817,10 @@ async function runRepositoryScan(
       ...(packageJsonResult.packageJson.devDependencies ?? {}),
     }
 
-    for (const [packageName, currentVersion] of Object.entries(dependencies)) {
+    const dependencyEntries = Object.entries(dependencies)
+    const dependenciesToScan = dependencyEntries.slice(0, MAX_DEPENDENCIES_TO_SCAN)
+
+    for (const [packageName, currentVersion] of dependenciesToScan) {
       const latestVersion = await fetchNpmLatestVersion(packageName)
       const normalizedLatest = latestVersion ?? currentVersion
       const updateType = latestVersion
@@ -620,6 +834,50 @@ async function runRepositoryScan(
         updateType,
         status: statusForPackageUpdate(updateType, args.packagePolicy ?? DEFAULT_PACKAGE_POLICY),
       })
+    }
+
+    if (dependencyEntries.length > dependenciesToScan.length) {
+      const skippedCount = dependencyEntries.length - dependenciesToScan.length
+      packageFindings.push({
+        packageName: 'dependency-scan-cap',
+        currentVersion: String(dependenciesToScan.length),
+        latestVersion: String(dependencyEntries.length),
+        updateType: 'unknown',
+        status: 'warning',
+      })
+
+      // Keep checklist output explicit about why some dependencies were skipped.
+      const dependencyCapDetail =
+        `Scanned ${dependenciesToScan.length} dependencies and skipped ${skippedCount} ` +
+        `to stay within memory limits.`
+
+      const extraChecklistFindings = await evaluateChecklist(
+        args.connectionToken,
+        args.repository,
+        packageJsonResult.packageJson
+      )
+      extraChecklistFindings.push({
+        checkKey: 'dependency-scan-cap',
+        status: 'warning',
+        detail: dependencyCapDetail,
+      })
+
+      const combinedStatuses = [
+        ...packageFindings.map((finding) => finding.status),
+        ...extraChecklistFindings.map((finding) => finding.status),
+      ]
+      const repositoryStatus = summarizeStatuses(combinedStatuses)
+
+      await ctx.runMutation(api.scans.saveRepositoryScanResult, {
+        repositoryId: args.repositoryId,
+        scanRunId: args.scanRunId,
+        hasPackageJson: true,
+        packageFindings,
+        checklistFindings: extraChecklistFindings,
+        repositoryStatus,
+        repositoryError: undefined,
+      })
+      return
     }
   }
 

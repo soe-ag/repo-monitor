@@ -97,7 +97,12 @@ type ScanActivity = {
   startedAt: number
   lastCheckedAt?: number
   repositoryId?: string
+  selectedRepositoryIds?: string[]
+  processedCount?: number
+  totalCount?: number
 }
+
+const MAX_SCAN_SELECTION = 10
 
 const sortOptions: Array<{ value: SortOption; label: string }> = [
   { value: 'alphabetical', label: 'Alphabetical' },
@@ -209,6 +214,7 @@ export function RepoHealthSetup() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [scanActivity, setScanActivity] = useState<ScanActivity | null>(null)
+  const [selectedRepositoryIds, setSelectedRepositoryIds] = useState<string[]>([])
   const [svglMap, setSvglMap] = useState<Record<string, string>>({})
   const [loadingState, setLoadingState] = useState({
     connecting: false,
@@ -271,6 +277,14 @@ export function RepoHealthSetup() {
       return bUpdated - aUpdated
     })
   }, [filteredRepositories, sortBy])
+
+  const lastUpdatedSortedRepositories = useMemo(() => {
+    return [...repositories].sort((a, b) => {
+      const aUpdated = a.githubUpdatedAt ?? a.pushedAt ?? a.lastScanAt ?? 0
+      const bUpdated = b.githubUpdatedAt ?? b.pushedAt ?? b.lastScanAt ?? 0
+      return bUpdated - aUpdated
+    })
+  }, [repositories])
 
   const filterCounts = useMemo(() => {
     const all = repositories.length
@@ -392,17 +406,24 @@ export function RepoHealthSetup() {
     if ('error' in payload) {
       setRepositories([])
       setRepositoriesError(payload.error)
+      setSelectedRepositoryIds([])
     } else {
       setRepositories(payload)
+      setSelectedRepositoryIds((previous) => {
+        const existingIds = new Set(payload.map((repository) => repository._id))
+        const filteredPrevious = previous.filter((repositoryId) => existingIds.has(repositoryId))
+        return filteredPrevious.slice(0, MAX_SCAN_SELECTION)
+      })
     }
     setLoadingState((prev) => ({ ...prev, loadingRepositories: false }))
   }
 
-  async function pollQueuedScans(targetRepositoryId?: string) {
+  async function pollQueuedScans(targetRepositoryId?: string, repositoryIds?: string[]) {
     const pollStartedAt = Date.now()
     let attempts = 0
     const maxAttempts = 120
     const isSingleScan = Boolean(targetRepositoryId)
+    const selectedSet = new Set(repositoryIds ?? [])
     const interval = setInterval(async () => {
       attempts += 1
       try {
@@ -435,11 +456,28 @@ export function RepoHealthSetup() {
             : prev
         )
 
-        const hasCompleted = targetRepositoryId
+        const processedCount = isSingleScan
           ? payload.some(
               (repo) => repo._id === targetRepositoryId && (repo.lastScanAt ?? 0) >= pollStartedAt
             )
-          : payload.some((repo) => (repo.lastScanAt ?? 0) >= pollStartedAt)
+            ? 1
+            : 0
+          : payload.filter(
+              (repo) => selectedSet.has(repo._id) && (repo.lastScanAt ?? 0) >= pollStartedAt
+            ).length
+
+        setScanActivity((prev) =>
+          prev
+            ? {
+                ...prev,
+                processedCount,
+              }
+            : prev
+        )
+
+        const hasCompleted = isSingleScan
+          ? processedCount === 1
+          : processedCount >= Math.min(repositoryIds?.length ?? 0, MAX_SCAN_SELECTION)
 
         if (hasCompleted || attempts >= maxAttempts) {
           clearInterval(interval)
@@ -475,6 +513,42 @@ export function RepoHealthSetup() {
     }, 3500)
   }
 
+  function selectLastTenRepositories() {
+    const nextIds = lastUpdatedSortedRepositories
+      .slice(0, MAX_SCAN_SELECTION)
+      .map((repository) => repository._id)
+    setSelectedRepositoryIds(nextIds)
+    setMessage(
+      nextIds.length > 0
+        ? `Selected last ${nextIds.length} repositories for Scan all.`
+        : 'No repositories available to select.'
+    )
+  }
+
+  function unselectAllRepositories() {
+    setSelectedRepositoryIds([])
+    setMessage('Cleared selected repositories.')
+  }
+
+  function toggleRepositorySelection(repositoryId: string, isChecked: boolean) {
+    setSelectedRepositoryIds((previous) => {
+      if (!isChecked) {
+        return previous.filter((id) => id !== repositoryId)
+      }
+
+      if (previous.includes(repositoryId)) {
+        return previous
+      }
+
+      if (previous.length >= MAX_SCAN_SELECTION) {
+        setMessage('You can select at most 10 repositories per Scan all run.')
+        return previous
+      }
+
+      return [...previous, repositoryId]
+    })
+  }
+
   async function connectWithPat(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setLoadingState((prev) => ({ ...prev, connecting: true }))
@@ -505,20 +579,33 @@ export function RepoHealthSetup() {
   }
 
   async function triggerScanAll() {
+    const selectedForScan = selectedRepositoryIds.slice(0, MAX_SCAN_SELECTION)
+    if (selectedForScan.length === 0) {
+      setMessage('Select up to 10 repositories before running Scan all.')
+      return
+    }
+
     setLoadingState((prev) => ({ ...prev, scanningAll: true }))
     setMessage(null)
     const response = await fetch('/api/scans', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'all' }),
+      body: JSON.stringify({ mode: 'all', repositoryIds: selectedForScan }),
     })
     const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
     if ('error' in payload || !payload.ok) {
-      setMessage('Failed to trigger scan all')
+      setMessage('Failed to trigger scan all for selected repositories')
     } else {
-      setMessage('Scan all queued. Watching for updates...')
-      setScanActivity({ mode: 'all', status: 'running', startedAt: Date.now() })
-      void pollQueuedScans()
+      setMessage(`Scan all queued for ${selectedForScan.length} repositories. Watching updates...`)
+      setScanActivity({
+        mode: 'all',
+        status: 'running',
+        startedAt: Date.now(),
+        selectedRepositoryIds: selectedForScan,
+        processedCount: 0,
+        totalCount: selectedForScan.length,
+      })
+      void pollQueuedScans(undefined, selectedForScan)
     }
     setLoadingState((prev) => ({ ...prev, scanningAll: false }))
   }
@@ -532,17 +619,15 @@ export function RepoHealthSetup() {
       body: JSON.stringify({ mode: 'single', repositoryId }),
     })
     const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
-    if ('error' in payload || !payload.ok) {
-      setMessage('Failed to trigger repository scan')
+    if ('error' in payload) {
+      setMessage(payload.error ?? 'Failed to trigger repository scan')
+    } else if (!payload.ok) {
+      setMessage(payload.message ?? 'Failed to trigger repository scan')
     } else {
-      setMessage('Repository scan queued. Watching for updates...')
-      setScanActivity({
-        mode: 'single',
-        status: 'running',
-        startedAt: Date.now(),
-        repositoryId,
-      })
-      void pollQueuedScans(repositoryId)
+      setMessage(
+        'Repository scan queued for one repo. Running in background; refresh to see updates.'
+      )
+      setScanActivity(null)
     }
     setLoadingState((prev) => ({ ...prev, scanningSingle: '' }))
   }
@@ -753,12 +838,34 @@ export function RepoHealthSetup() {
             <CardContent className="space-y-3 px-5 pb-1">
               <div className="flex flex-wrap items-center gap-2">
                 <Button
+                  type="button"
                   onClick={() => void triggerScanAll()}
-                  disabled={loadingState.scanningAll}
+                  disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
                   className="h-9 rounded-full px-5"
                 >
-                  {loadingState.scanningAll ? 'Queueing scan...' : 'Scan all repositories'}
+                  {loadingState.scanningAll ? 'Queueing scan...' : 'Scan selected repos'}
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full px-5"
+                  onClick={selectLastTenRepositories}
+                  disabled={repositories.length === 0}
+                >
+                  Select last 10 repos
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full px-5"
+                  onClick={unselectAllRepositories}
+                  disabled={selectedRepositoryIds.length === 0}
+                >
+                  Unselect all
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Selected: {selectedRepositoryIds.length}/{MAX_SCAN_SELECTION}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Last run:{' '}
                   {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString() : 'Never'}
@@ -777,7 +884,9 @@ export function RepoHealthSetup() {
                 <p className="text-xs text-muted-foreground">
                   Scan status:{' '}
                   {scanActivity.status === 'running'
-                    ? `running (${scanActivity.mode === 'all' ? 'all repos' : 'single repo'})`
+                    ? scanActivity.mode === 'all'
+                      ? `running · currently processing ${scanActivity.processedCount ?? 0}/${MAX_SCAN_SELECTION}`
+                      : 'running (single repo)'
                     : scanActivity.status === 'completed'
                       ? 'completed'
                       : 'timed out'}
@@ -809,7 +918,7 @@ export function RepoHealthSetup() {
               <div className="inline-flex items-center gap-2 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 p-1.5 whitespace-nowrap">
                 <span className="px-1 text-xs text-muted-foreground">Sort by</span>
                 <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                  <SelectTrigger className="w-[160px] rounded-full" size="sm">
+                  <SelectTrigger className="w-40 rounded-full" size="sm">
                     <SelectValue placeholder="Select sorting" />
                   </SelectTrigger>
                   <SelectContent>
@@ -825,7 +934,7 @@ export function RepoHealthSetup() {
                   value={String(minimumYear)}
                   onValueChange={(value) => setMinimumYear(Number(value))}
                 >
-                  <SelectTrigger className="w-[112px] rounded-full" size="sm">
+                  <SelectTrigger className="w-28 rounded-full" size="sm">
                     <SelectValue placeholder="Select year" />
                   </SelectTrigger>
                   <SelectContent>
@@ -887,7 +996,22 @@ export function RepoHealthSetup() {
               return (
                 <Card key={repository._id} className="h-full">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
+                    <CardTitle className="flex items-center justify-between gap-2 text-base">
+                      <label className="mr-1 inline-flex items-center" title="Select repository">
+                        <input
+                          type="checkbox"
+                          checked={selectedRepositoryIds.includes(repository._id)}
+                          onChange={(event) =>
+                            toggleRepositorySelection(repository._id, event.target.checked)
+                          }
+                          disabled={
+                            !selectedRepositoryIds.includes(repository._id) &&
+                            selectedRepositoryIds.length >= MAX_SCAN_SELECTION
+                          }
+                          aria-label={`Select ${repository.fullName}`}
+                          className="size-4 cursor-pointer rounded border border-border"
+                        />
+                      </label>
                       <span className="line-clamp-1">
                         {getRepositoryDisplayName(repository.fullName)}
                       </span>
@@ -964,6 +1088,7 @@ export function RepoHealthSetup() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Button
+                          type="button"
                           size="icon"
                           variant="outline"
                           className="size-8 text-amber-600 hover:bg-amber-50"
@@ -976,9 +1101,16 @@ export function RepoHealthSetup() {
                         >
                           <ExclamationTriangleIcon />
                         </Button>
+                        <span className="text-[11px] text-muted-foreground">
+                          Last scan:{' '}
+                          {repository.lastScanAt
+                            ? new Date(repository.lastScanAt).toLocaleString()
+                            : 'Never'}
+                        </span>
                       </div>
 
                       <Button
+                        type="button"
                         size="icon"
                         variant="outline"
                         className="size-8"
