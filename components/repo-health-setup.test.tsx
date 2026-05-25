@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RepoHealthSetup } from './repo-health-setup'
 
@@ -177,10 +177,10 @@ describe('RepoHealthSetup', () => {
     expect(await screen.findByText('repo-1')).toBeInTheDocument()
     expect(screen.getByText('Selected: 0/10')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select last 10 repos' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Select last 10' }))
     expect(screen.getByText('Selected: 10/10')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Scan selected repos' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Scan selected' }))
 
     const postCall = fetchMock.mock.calls.find(
       ([url, init]) => String(url).endsWith('/api/scans') && init?.method === 'POST'
@@ -268,9 +268,72 @@ describe('RepoHealthSetup', () => {
     expect(body.repositoryId).toBe('repo-1')
     expect(body.repositoryIds).toBeUndefined()
 
-    const pollCall = fetchMock.mock.calls.find(([url]) =>
-      String(url).includes('/api/scans?repositoryId=')
+    await waitFor(() => {
+      const pollCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes('/api/scans?repositoryId=')
+      )
+      expect(pollCall).toBeDefined()
+    })
+  })
+
+  it('shows only packages that need updates in detail modal', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.startsWith('https://api.svgl.app')) {
+          return mockJsonResponse([])
+        }
+        if (url.endsWith('/api/github-connection')) {
+          return mockJsonResponse({
+            status: 'connected',
+            connected: true,
+            packagePolicy: 'any-newer',
+            accountLogin: 'acme',
+          })
+        }
+        if (url.endsWith('/api/scans')) {
+          return mockJsonResponse([
+            {
+              _id: 'repo-1',
+              fullName: 'acme/repo-monitor',
+              visibility: 'private',
+              githubCreatedAt: 1735689600000,
+              githubUpdatedAt: 1767225600000,
+              lastScanAt: 1767225600000,
+              lastScanStatus: 'warning',
+              packageFindings: [
+                {
+                  _id: 'pkg-1',
+                  packageName: 'react',
+                  currentVersion: '19.0.0',
+                  latestVersion: '19.2.4',
+                  updateType: 'minor',
+                  status: 'warning',
+                },
+                {
+                  _id: 'pkg-2',
+                  packageName: 'zod',
+                  currentVersion: '4.4.3',
+                  latestVersion: '4.4.3',
+                  updateType: 'none',
+                  status: 'ok',
+                },
+              ],
+              checklistFindings: [],
+            },
+          ])
+        }
+        return mockJsonResponse({ error: `Unhandled endpoint ${url}` })
+      })
     )
-    expect(pollCall).toBeUndefined()
+
+    render(<RepoHealthSetup />)
+    expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByLabelText('Open details')[0])
+
+    expect(await screen.findByText(/react/)).toBeInTheDocument()
+    expect(screen.queryByText(/zod/)).not.toBeInTheDocument()
   })
 })

@@ -32,7 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
-type DashboardFilter = 'all' | 'needs-attention'
+type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json'
 type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
 
 type ConnectionState = {
@@ -97,6 +97,8 @@ type ScanActivity = {
   startedAt: number
   lastCheckedAt?: number
   repositoryId?: string
+  repositoryName?: string
+  currentRepositoryName?: string
   selectedRepositoryIds?: string[]
   processedCount?: number
   totalCount?: number
@@ -253,10 +255,15 @@ export function RepoHealthSetup() {
       return latestTimestamp >= fromTimestamp
     })
 
-    if (filter === 'all') {
-      return repositoriesWithinYear
+    if (filter === 'needs-attention') {
+      return repositoriesWithinYear.filter((repository) =>
+        needsAttention(repository.lastScanStatus)
+      )
     }
-    return repositoriesWithinYear.filter((repository) => needsAttention(repository.lastScanStatus))
+    if (filter === 'has-package-json') {
+      return repositoriesWithinYear.filter((repository) => repository.hasPackageJson === true)
+    }
+    return repositoriesWithinYear
   }, [filter, minimumYear, repositories])
 
   const sortedRepositories = useMemo(() => {
@@ -291,7 +298,10 @@ export function RepoHealthSetup() {
     const needs = repositories.filter((repository) =>
       needsAttention(repository.lastScanStatus)
     ).length
-    return { all, needs }
+    const hasPackageJson = repositories.filter(
+      (repository) => repository.hasPackageJson === true
+    ).length
+    return { all, needs, hasPackageJson }
   }, [repositories])
 
   const lastScanAllRunAt = useMemo(() => {
@@ -424,7 +434,9 @@ export function RepoHealthSetup() {
     const maxAttempts = 120
     const isSingleScan = Boolean(targetRepositoryId)
     const selectedSet = new Set(repositoryIds ?? [])
-    const interval = setInterval(async () => {
+    const selectedIds = repositoryIds?.slice(0, MAX_SCAN_SELECTION) ?? []
+
+    const pollOnce = async (interval?: ReturnType<typeof setInterval>) => {
       attempts += 1
       try {
         const response = await fetch(
@@ -466,11 +478,33 @@ export function RepoHealthSetup() {
               (repo) => selectedSet.has(repo._id) && (repo.lastScanAt ?? 0) >= pollStartedAt
             ).length
 
+        let currentRepositoryName: string | undefined
+        if (isSingleScan) {
+          const targetRepository = payload.find((repo) => repo._id === targetRepositoryId)
+          currentRepositoryName = targetRepository
+            ? getRepositoryDisplayName(targetRepository.fullName)
+            : undefined
+        } else {
+          const nextRepositoryId = selectedIds.find(
+            (selectedId) =>
+              !payload.some(
+                (repo) => repo._id === selectedId && (repo.lastScanAt ?? 0) >= pollStartedAt
+              )
+          )
+          if (nextRepositoryId) {
+            const nextRepository = payload.find((repo) => repo._id === nextRepositoryId)
+            currentRepositoryName = nextRepository
+              ? getRepositoryDisplayName(nextRepository.fullName)
+              : undefined
+          }
+        }
+
         setScanActivity((prev) =>
           prev
             ? {
                 ...prev,
                 processedCount,
+                currentRepositoryName,
               }
             : prev
         )
@@ -480,7 +514,9 @@ export function RepoHealthSetup() {
           : processedCount >= Math.min(repositoryIds?.length ?? 0, MAX_SCAN_SELECTION)
 
         if (hasCompleted || attempts >= maxAttempts) {
-          clearInterval(interval)
+          if (interval) {
+            clearInterval(interval)
+          }
           setScanActivity((prev) =>
             prev
               ? {
@@ -493,12 +529,14 @@ export function RepoHealthSetup() {
           setMessage(
             hasCompleted
               ? `Scan finished at ${new Date().toLocaleTimeString()} and dashboard updated.`
-              : 'Scan is still running in the background. We stopped auto-checking; use Scan again or refresh later.'
+              : 'Scan is still running. We stopped auto-checking; use Scan again or refresh later.'
           )
         }
       } catch {
         if (attempts >= maxAttempts) {
-          clearInterval(interval)
+          if (interval) {
+            clearInterval(interval)
+          }
           setScanActivity((prev) =>
             prev
               ? {
@@ -510,6 +548,11 @@ export function RepoHealthSetup() {
           )
         }
       }
+    }
+
+    await pollOnce()
+    const interval = setInterval(() => {
+      void pollOnce(interval)
     }, 3500)
   }
 
@@ -596,6 +639,12 @@ export function RepoHealthSetup() {
     if ('error' in payload || !payload.ok) {
       setMessage('Failed to trigger scan all for selected repositories')
     } else {
+      const firstSelectedRepository = repositories.find(
+        (repository) => repository._id === selectedForScan[0]
+      )
+      const firstSelectedName = firstSelectedRepository
+        ? getRepositoryDisplayName(firstSelectedRepository.fullName)
+        : 'selected repositories'
       setMessage(`Scan all queued for ${selectedForScan.length} repositories. Watching updates...`)
       setScanActivity({
         mode: 'all',
@@ -604,6 +653,7 @@ export function RepoHealthSetup() {
         selectedRepositoryIds: selectedForScan,
         processedCount: 0,
         totalCount: selectedForScan.length,
+        currentRepositoryName: firstSelectedName,
       })
       void pollQueuedScans(undefined, selectedForScan)
     }
@@ -613,6 +663,10 @@ export function RepoHealthSetup() {
   async function triggerScanSingle(repositoryId: string) {
     setLoadingState((prev) => ({ ...prev, scanningSingle: repositoryId }))
     setMessage(null)
+    const targetRepository = repositories.find((repository) => repository._id === repositoryId)
+    const repositoryName = targetRepository
+      ? getRepositoryDisplayName(targetRepository.fullName)
+      : 'selected repository'
     const response = await fetch('/api/scans', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -624,10 +678,18 @@ export function RepoHealthSetup() {
     } else if (!payload.ok) {
       setMessage(payload.message ?? 'Failed to trigger repository scan')
     } else {
-      setMessage(
-        'Repository scan queued for one repo. Running in background; refresh to see updates.'
-      )
-      setScanActivity(null)
+      setMessage(`Repository scan started for ${repositoryName}. Watching updates...`)
+      setScanActivity({
+        mode: 'single',
+        status: 'running',
+        startedAt: Date.now(),
+        repositoryId,
+        repositoryName,
+        currentRepositoryName: repositoryName,
+        processedCount: 0,
+        totalCount: 1,
+      })
+      void pollQueuedScans(repositoryId)
     }
     setLoadingState((prev) => ({ ...prev, scanningSingle: '' }))
   }
@@ -698,7 +760,7 @@ export function RepoHealthSetup() {
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-4 py-7 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-6 py-7 sm:px-3 lg:px-4">
         <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/60 bg-linear-to-br from-card via-card to-muted/20 px-5 py-4 shadow-sm">
           <div className="min-w-0">
             <h1 className="font-heading text-3xl leading-tight tracking-tight">
@@ -836,28 +898,31 @@ export function RepoHealthSetup() {
               <CardDescription>Filter, sort, and trigger scans.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 px-5 pb-1">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   type="button"
+                  size="sm"
                   onClick={() => void triggerScanAll()}
                   disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
-                  className="h-9 rounded-full px-5"
+                  className="h-7 rounded-full px-3 text-xs"
                 >
-                  {loadingState.scanningAll ? 'Queueing scan...' : 'Scan selected repos'}
+                  {loadingState.scanningAll ? 'Queueing...' : 'Scan selected'}
                 </Button>
                 <Button
                   type="button"
+                  size="sm"
                   variant="outline"
-                  className="h-9 rounded-full px-5"
+                  className="h-7 rounded-full px-3 text-xs"
                   onClick={selectLastTenRepositories}
                   disabled={repositories.length === 0}
                 >
-                  Select last 10 repos
+                  Select last 10
                 </Button>
                 <Button
                   type="button"
+                  size="sm"
                   variant="outline"
-                  className="h-9 rounded-full px-5"
+                  className="h-7 rounded-full px-3 text-xs"
                   onClick={unselectAllRepositories}
                   disabled={selectedRepositoryIds.length === 0}
                 >
@@ -871,7 +936,7 @@ export function RepoHealthSetup() {
                   {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString() : 'Never'}
                 </p>
                 <a
-                  href="/scan-manual.md"
+                  href="/manual"
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs text-muted-foreground underline"
@@ -885,8 +950,8 @@ export function RepoHealthSetup() {
                   Scan status:{' '}
                   {scanActivity.status === 'running'
                     ? scanActivity.mode === 'all'
-                      ? `running · currently processing ${scanActivity.processedCount ?? 0}/${MAX_SCAN_SELECTION}`
-                      : 'running (single repo)'
+                      ? `running · currently processing ${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? MAX_SCAN_SELECTION} · now scanning ${scanActivity.currentRepositoryName ?? 'selected repositories'}`
+                      : `running · ${scanActivity.currentRepositoryName ?? scanActivity.repositoryName ?? 'selected repository'} (${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? 1})`
                     : scanActivity.status === 'completed'
                       ? 'completed'
                       : 'timed out'}
@@ -896,10 +961,10 @@ export function RepoHealthSetup() {
                 </p>
               ) : null}
 
-              <div className="inline-flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-background/80 p-1.5">
+              <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/60 bg-background/80 p-1.5">
                 <Button
                   size="sm"
-                  className="rounded-full"
+                  className="h-7 rounded-full px-3 text-xs"
                   variant={filter === 'all' ? 'default' : 'ghost'}
                   onClick={() => setFilter('all')}
                 >
@@ -907,7 +972,15 @@ export function RepoHealthSetup() {
                 </Button>
                 <Button
                   size="sm"
-                  className="rounded-full"
+                  className="h-7 rounded-full px-3 text-xs"
+                  variant={filter === 'has-package-json' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('has-package-json')}
+                >
+                  Has package.json ({filterCounts.hasPackageJson})
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 rounded-full px-3 text-xs"
                   variant={filter === 'needs-attention' ? 'default' : 'ghost'}
                   onClick={() => setFilter('needs-attention')}
                 >
@@ -954,7 +1027,7 @@ export function RepoHealthSetup() {
         </div>
 
         {loadingState.loadingRepositories ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             {Array.from({ length: 8 }).map((_, index) => (
               <Card key={index} className="h-full">
                 <CardHeader>
@@ -982,7 +1055,7 @@ export function RepoHealthSetup() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             {sortedRepositories.map((repository) => {
               const status = repository.lastScanStatus ?? 'unknown'
               const outdatedPackages = repository.packageFindings.filter(
@@ -1145,18 +1218,21 @@ export function RepoHealthSetup() {
             <div className="space-y-4 text-sm">
               <div>
                 <h3 className="mb-2 font-semibold">Package updates</h3>
-                {detailRepository.packageFindings.length === 0 ? (
-                  <p className="text-muted-foreground">No package findings available.</p>
+                {detailRepository.packageFindings.filter((finding) => finding.status === 'warning')
+                  .length === 0 ? (
+                  <p className="text-muted-foreground">No package updates needed.</p>
                 ) : (
                   <div className="max-h-56 space-y-1 overflow-auto rounded-md border border-border/60 p-3 text-xs">
-                    {detailRepository.packageFindings.map((finding) => (
-                      <p key={finding._id}>
-                        <span className="font-medium">{finding.packageName}</span>:{' '}
-                        {finding.currentVersion}
-                        {' -> '}
-                        {finding.latestVersion} ({finding.status})
-                      </p>
-                    ))}
+                    {detailRepository.packageFindings
+                      .filter((finding) => finding.status === 'warning')
+                      .map((finding) => (
+                        <p key={finding._id}>
+                          <span className="font-medium">{finding.packageName}</span>:{' '}
+                          {finding.currentVersion}
+                          {' -> '}
+                          {finding.latestVersion} ({finding.status})
+                        </p>
+                      ))}
                   </div>
                 )}
               </div>

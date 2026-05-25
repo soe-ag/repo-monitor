@@ -809,6 +809,7 @@ async function runRepositoryScan(
   }
 ) {
   const packageJsonResult = await fetchPackageJson(args.connectionToken, args.repository)
+  let dependencyCapDetail: string | null = null
 
   const packageFindings: PackageFinding[] = []
   if (packageJsonResult.ok) {
@@ -846,46 +847,24 @@ async function runRepositoryScan(
         status: 'warning',
       })
 
-      // Keep checklist output explicit about why some dependencies were skipped.
-      const dependencyCapDetail =
+      dependencyCapDetail =
         `Scanned ${dependenciesToScan.length} dependencies and skipped ${skippedCount} ` +
         `to stay within memory limits.`
-
-      const extraChecklistFindings = await evaluateChecklist(
-        args.connectionToken,
-        args.repository,
-        packageJsonResult.packageJson
-      )
-      extraChecklistFindings.push({
-        checkKey: 'dependency-scan-cap',
-        status: 'warning',
-        detail: dependencyCapDetail,
-      })
-
-      const combinedStatuses = [
-        ...packageFindings.map((finding) => finding.status),
-        ...extraChecklistFindings.map((finding) => finding.status),
-      ]
-      const repositoryStatus = summarizeStatuses(combinedStatuses)
-
-      await ctx.runMutation(api.scans.saveRepositoryScanResult, {
-        repositoryId: args.repositoryId,
-        scanRunId: args.scanRunId,
-        hasPackageJson: true,
-        packageFindings,
-        checklistFindings: extraChecklistFindings,
-        repositoryStatus,
-        repositoryError: undefined,
-      })
-      return
     }
   }
 
-  const checklistFindings = await evaluateChecklist(
+  const checklistFindings: ChecklistFinding[] = await evaluateChecklist(
     args.connectionToken,
     args.repository,
     packageJsonResult.ok ? packageJsonResult.packageJson : null
   )
+  if (dependencyCapDetail) {
+    checklistFindings.push({
+      checkKey: 'dependency-scan-cap',
+      status: 'warning',
+      detail: dependencyCapDetail,
+    })
+  }
 
   const combinedStatuses = [
     ...packageFindings.map((finding) => finding.status),
@@ -906,17 +885,35 @@ async function runRepositoryScan(
 
 async function fetchPackageJson(token: string, repository: GitHubRepository) {
   try {
-    const payload = await fetchGitHubJson<GitHubContentResponse>(
-      `/repos/${repository.owner.login}/${repository.name}/contents/package.json?ref=${repository.default_branch}`,
-      { token }
+    const response = await fetch(
+      `https://api.github.com/repos/${repository.owner.login}/${repository.name}/contents/package.json?ref=${repository.default_branch}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github.raw+json',
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'repo-monitor',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
     )
 
-    if (payload.type !== 'file' || !payload.content) {
-      return { ok: false, error: 'package.json not found' } as const
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { ok: false, error: 'package.json missing' } as const
+      }
+      throw new GitHubHttpError(
+        `GitHub API request failed: ${response.status}`,
+        response.status,
+        null
+      )
     }
 
-    const decoded = decodeBase64(payload.content, payload.encoding ?? 'base64')
-    const packageJson = JSON.parse(decoded) as {
+    const rawPackageJson = await response.text()
+    if (rawPackageJson.length > 1_000_000) {
+      return { ok: false, error: 'package.json too large to scan safely' } as const
+    }
+
+    const packageJson = JSON.parse(rawPackageJson) as {
       scripts?: Record<string, string>
       dependencies?: Record<string, string>
       devDependencies?: Record<string, string>
@@ -1070,13 +1067,4 @@ function extractMessage(error: unknown) {
     return error.message
   }
   return 'Unknown error'
-}
-
-function decodeBase64(content: string, encoding: string) {
-  if (encoding !== 'base64') {
-    return content
-  }
-  const binary = atob(content.replace(/\n/g, ''))
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-  return new TextDecoder().decode(bytes)
 }

@@ -161,19 +161,17 @@ export function statusForPackageUpdate(
 }
 
 export async function fetchNpmLatestVersion(packageName: string): Promise<string | null> {
-  const response = await fetch(
-    `${NPM_REGISTRY_BASE}/${encodeURIComponent(packageName).replace(/%40/g, '@')}`,
-    {
-      headers: {
-        Accept: 'application/json',
-      },
-    }
-  )
+  const encodedPackage = encodeURIComponent(packageName)
+  const response = await fetch(`${NPM_REGISTRY_BASE}/-/package/${encodedPackage}/dist-tags`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  })
 
   if (!response.ok) {
     return null
   }
 
-  const data = (await response.json()) as { 'dist-tags'?: { latest?: string } }
-  return data['dist-tags']?.latest ?? null
+  const data = (await response.json()) as { latest?: string }
+  return data.latest ?? null
 }
