@@ -939,9 +939,9 @@ export function RepoHealthSetup() {
                   href="/manual"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-muted-foreground underline"
+                  className="inline-flex h-7 items-center rounded-full border border-border/70 bg-background px-3 text-xs font-medium text-foreground shadow-xs hover:bg-muted"
                 >
-                  Scan manual
+                  How scan works →
                 </a>
               </div>
 
