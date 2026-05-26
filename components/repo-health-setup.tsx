@@ -9,7 +9,14 @@ import {
   SunIcon,
   TrashIcon,
 } from '@radix-ui/react-icons'
-import { AlertTriangle, CheckCircle2, CircleHelp } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  CircleHelp,
+  Filter,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -204,7 +211,23 @@ function normalizeSvglRoute(route: SvglApiEntry['route']) {
 export function RepoHealthSetup() {
   const currentYear = new Date().getFullYear()
   const [pat, setPat] = useState('')
-  const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window === 'undefined') {
+      return 'light'
+    }
+
+    const storedTheme = window.localStorage.getItem('theme')
+    const systemPrefersDark =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : false
+
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      return storedTheme
+    }
+
+    return systemPrefersDark ? 'dark' : 'light'
+  })
   const [filter, setFilter] = useState<DashboardFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
   const [minimumYear, setMinimumYear] = useState<number>(() => new Date().getFullYear() - 2)
@@ -331,25 +354,14 @@ export function RepoHealthSetup() {
   }, [currentYear, repositories])
 
   useEffect(() => {
-    const storedTheme = window.localStorage.getItem('theme')
-    const systemPrefersDark =
-      typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-        : false
-    const nextTheme =
-      storedTheme === 'dark' || storedTheme === 'light'
-        ? (storedTheme as 'light' | 'dark')
-        : systemPrefersDark
-          ? 'dark'
-          : 'light'
-
-    setTheme(nextTheme)
-    document.documentElement.classList.toggle('dark', nextTheme === 'dark')
-
     void loadConnection()
     void loadRepositories()
     void loadSvglCatalog()
   }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
 
   function toggleTheme() {
     const nextTheme = theme === 'dark' ? 'light' : 'dark'
@@ -806,21 +818,30 @@ export function RepoHealthSetup() {
               </div>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="size-8 rounded-full"
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-8 rounded-full"
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+              </Button>
+              <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
+                {connectionBadge.text}
+              </Badge>
+            </div>
+            <a
+              href="/manual"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background px-4 text-xs font-medium text-foreground shadow-xs hover:bg-muted"
             >
-              {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-            </Button>
-            <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
-              {connectionBadge.text}
-            </Badge>
+              How scan works →
+            </a>
           </div>
         </div>
 
@@ -892,62 +913,66 @@ export function RepoHealthSetup() {
             </CardContent>
           </Card>
 
-          <Card className="gap-3 border-border/60 bg-linear-to-br from-card to-muted/20 py-4 shadow-sm">
-            <CardHeader className="gap-1 px-5">
-              <CardTitle className="text-lg">Dashboard controls</CardTitle>
-              <CardDescription>Filter, sort, and trigger scans.</CardDescription>
+          <Card className="gap-3 border-border/60 bg-linear-to-br from-card via-card to-muted/30 py-4 shadow-sm">
+            <CardHeader className="gap-1 px-5 pb-1">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden />
+                Dashboard controls
+              </CardTitle>
+              <CardDescription>Run scans and track progress.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 px-5 pb-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void triggerScanAll()}
-                  disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
-                  className="h-7 rounded-full px-3 text-xs"
-                >
-                  {loadingState.scanningAll ? 'Queueing...' : 'Scan selected'}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 rounded-full px-3 text-xs"
-                  onClick={selectLastTenRepositories}
-                  disabled={repositories.length === 0}
-                >
-                  Select last 10
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 rounded-full px-3 text-xs"
-                  onClick={unselectAllRepositories}
-                  disabled={selectedRepositoryIds.length === 0}
-                >
-                  Unselect all
-                </Button>
-                <p className="text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
                   Selected: {selectedRepositoryIds.length}/{MAX_SCAN_SELECTION}
-                </p>
-                <p className="text-xs text-muted-foreground">
+                </span>
+                <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
                   Last run:{' '}
                   {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString() : 'Never'}
+                </span>
+              </div>
+
+              <div className="rounded-2xl border border-border/60 bg-background/75 p-3">
+                <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Activity className="size-3.5" aria-hidden />
+                  Scan actions
                 </p>
-                <a
-                  href="/manual"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-7 items-center rounded-full border border-border/70 bg-background px-3 text-xs font-medium text-foreground shadow-xs hover:bg-muted"
-                >
-                  How scan works →
-                </a>
+                <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void triggerScanAll()}
+                    disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
+                    className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
+                  >
+                    {loadingState.scanningAll ? 'Queueing...' : 'Scan selected'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
+                    onClick={selectLastTenRepositories}
+                    disabled={repositories.length === 0}
+                  >
+                    Select last 10
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
+                    onClick={unselectAllRepositories}
+                    disabled={selectedRepositoryIds.length === 0}
+                  >
+                    Unselect all
+                  </Button>
+                </div>
               </div>
 
               {scanActivity ? (
-                <p className="text-xs text-muted-foreground">
-                  Scan status:{' '}
+                <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <span className="font-semibold text-foreground">Scan status:</span>{' '}
                   {scanActivity.status === 'running'
                     ? scanActivity.mode === 'all'
                       ? `running · currently processing ${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? MAX_SCAN_SELECTION} · now scanning ${scanActivity.currentRepositoryName ?? 'selected repositories'}`
@@ -958,13 +983,28 @@ export function RepoHealthSetup() {
                   {scanActivity.lastCheckedAt
                     ? ` · last checked ${new Date(scanActivity.lastCheckedAt).toLocaleTimeString()}`
                     : ''}
-                </p>
+                </div>
               ) : null}
+            </CardContent>
+          </Card>
+        </div>
 
-              <div className="inline-flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/60 bg-background/80 p-1.5">
+        <div className="rounded-2xl border border-border/60 bg-linear-to-r from-card via-card to-muted/25 p-3 shadow-sm">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="inline-flex items-center gap-2 text-sm font-semibold">
+                  <Filter className="size-4 text-muted-foreground" aria-hidden />
+                  Repository filters
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Choose which repositories to show in the card grid.
+                </p>
+              </div>
+              <div className="grid w-full gap-1.5 rounded-2xl border border-border/60 bg-background/90 p-1.5 sm:inline-flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
                 <Button
                   size="sm"
-                  className="h-7 rounded-full px-3 text-xs"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'all' ? 'default' : 'ghost'}
                   onClick={() => setFilter('all')}
                 >
@@ -972,7 +1012,7 @@ export function RepoHealthSetup() {
                 </Button>
                 <Button
                   size="sm"
-                  className="h-7 rounded-full px-3 text-xs"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'has-package-json' ? 'default' : 'ghost'}
                   onClick={() => setFilter('has-package-json')}
                 >
@@ -980,50 +1020,59 @@ export function RepoHealthSetup() {
                 </Button>
                 <Button
                   size="sm"
-                  className="h-7 rounded-full px-3 text-xs"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'needs-attention' ? 'default' : 'ghost'}
                   onClick={() => setFilter('needs-attention')}
                 >
                   Needs attention ({filterCounts.needs})
                 </Button>
-              </div>
 
-              <div className="inline-flex items-center gap-2 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 p-1.5 whitespace-nowrap">
-                <span className="px-1 text-xs text-muted-foreground">Sort by</span>
-                <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                  <SelectTrigger className="w-40 rounded-full" size="sm">
-                    <SelectValue placeholder="Select sorting" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="px-1 text-xs text-muted-foreground">From year</span>
-                <Select
-                  value={String(minimumYear)}
-                  onValueChange={(value) => setMinimumYear(Number(value))}
-                >
-                  <SelectTrigger className="w-28 rounded-full" size="sm">
-                    <SelectValue placeholder="Select year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from(
-                      { length: Math.max(1, currentYear - oldestCreatedYear + 1) },
-                      (_, index) => currentYear - index
-                    ).map((year) => (
-                      <SelectItem key={year} value={String(year)}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="h-px w-full bg-border/50 sm:hidden" />
+
+                <div className="grid w-full gap-1.5 sm:w-auto sm:grid-cols-[auto_1fr] sm:items-center sm:gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-1">
+                    Sort by
+                  </span>
+                  <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                    <SelectTrigger className="h-8 w-full rounded-full text-xs sm:w-40" size="sm">
+                      <SelectValue placeholder="Select sorting" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid w-full gap-1.5 sm:w-auto sm:grid-cols-[auto_1fr] sm:items-center sm:gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-1">
+                    From year
+                  </span>
+                  <Select
+                    value={String(minimumYear)}
+                    onValueChange={(value) => setMinimumYear(Number(value))}
+                  >
+                    <SelectTrigger className="h-8 w-full rounded-full text-xs sm:w-28" size="sm">
+                      <SelectValue placeholder="Select year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from(
+                        { length: Math.max(1, currentYear - oldestCreatedYear + 1) },
+                        (_, index) => currentYear - index
+                      ).map((year) => (
+                        <SelectItem key={year} value={String(year)}>
+                          {year}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
         {loadingState.loadingRepositories ? (
@@ -1057,7 +1106,6 @@ export function RepoHealthSetup() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             {sortedRepositories.map((repository) => {
-              const status = repository.lastScanStatus ?? 'unknown'
               const outdatedPackages = repository.packageFindings.filter(
                 (finding) => finding.status === 'warning'
               )
