@@ -1113,7 +1113,10 @@ export function RepoHealthSetup() {
               const failedChecklist = repository.checklistFindings.filter((finding) =>
                 needsAttention(finding.status)
               )
-              const isPerfect = repository.lastScanStatus === 'ok'
+              const isPerfect =
+                repository.lastScanAt &&
+                outdatedPackages.length === 0 &&
+                failedChecklist.length === 0
               const stackLogos = findStackLogos(repository)
 
               return (
