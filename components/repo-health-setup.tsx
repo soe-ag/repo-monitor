@@ -1,6 +1,6 @@
 'use client'
 
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import {
   ExclamationTriangleIcon,
   Link2Icon,
@@ -211,23 +211,7 @@ function normalizeSvglRoute(route: SvglApiEntry['route']) {
 export function RepoHealthSetup() {
   const currentYear = new Date().getFullYear()
   const [pat, setPat] = useState('')
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window === 'undefined') {
-      return 'light'
-    }
-
-    const storedTheme = window.localStorage.getItem('theme')
-    const systemPrefersDark =
-      typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-        : false
-
-    if (storedTheme === 'dark' || storedTheme === 'light') {
-      return storedTheme
-    }
-
-    return systemPrefersDark ? 'dark' : 'light'
-  })
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [filter, setFilter] = useState<DashboardFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
   const [minimumYear, setMinimumYear] = useState<number>(() => new Date().getFullYear() - 2)
@@ -352,6 +336,23 @@ export function RepoHealthSetup() {
 
     return new Date(oldestTimestamp).getFullYear()
   }, [currentYear, repositories])
+
+  // Initialize theme from localStorage/system preferences after mount to avoid hydration mismatch
+  useLayoutEffect(() => {
+    const storedTheme = window.localStorage.getItem('theme')
+    const systemPrefersDark =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : false
+
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      setTheme(storedTheme) // eslint-disable-line react-hooks/set-state-in-effect
+      document.documentElement.classList.toggle('dark', storedTheme === 'dark')
+    } else if (systemPrefersDark) {
+      setTheme('dark')
+      document.documentElement.classList.toggle('dark', true)
+    }
+  }, [])
 
   useEffect(() => {
     void loadConnection()
