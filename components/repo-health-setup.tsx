@@ -784,6 +784,7 @@ export function RepoHealthSetup() {
             {connectionState?.connected ? (
               <div className="mt-3 flex items-center gap-3">
                 {connectionState.accountAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={connectionState.accountAvatarUrl}
                     alt="GitHub avatar"
@@ -1159,6 +1160,7 @@ export function RepoHealthSetup() {
                       <div className="flex min-h-8 items-center gap-2">
                         {stackLogos.length > 0 ? (
                           stackLogos.map((logo) => (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                               key={`${repository._id}-${logo.name}`}
                               src={logo.iconUrl}
