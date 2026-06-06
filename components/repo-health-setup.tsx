@@ -1112,6 +1112,7 @@ export function RepoHealthSetup() {
               const failedChecklist = repository.checklistFindings.filter((finding) =>
                 needsAttention(finding.status)
               )
+              const isPerfect = repository.lastScanStatus === 'ok'
               const stackLogos = findStackLogos(repository)
 
               return (
@@ -1212,15 +1213,23 @@ export function RepoHealthSetup() {
                           type="button"
                           size="icon"
                           variant="outline"
-                          className="size-8 text-amber-600 hover:bg-amber-50"
+                          className={`size-8 ${
+                            isPerfect
+                              ? 'text-emerald-600 hover:bg-emerald-50'
+                              : 'text-amber-600 hover:bg-amber-50'
+                          }`}
                           onClick={() => {
                             setDetailRepository(repository)
                             setDetailOpen(true)
                           }}
-                          aria-label="Open details"
-                          title="Warnings and details"
+                          aria-label={isPerfect ? 'Open details (All good)' : 'Open details'}
+                          title={isPerfect ? 'Everything looks good' : 'Warnings and details'}
                         >
-                          <ExclamationTriangleIcon />
+                          {isPerfect ? (
+                            <CheckCircle2 className="size-4" />
+                          ) : (
+                            <ExclamationTriangleIcon />
+                          )}
                         </Button>
                         <span className="text-[11px] text-muted-foreground">
                           Last scan:{' '}
