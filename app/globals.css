@@ -49,6 +49,9 @@
 }
 
 :root {
+  --font-manrope: 'Inter', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-fraunces: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-jetbrains-mono: 'Cascadia Code', Consolas, monospace;
   --background: oklch(0.97 0.004 250);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

@@ -1,21 +1,5 @@
 import type { Metadata } from 'next'
-import { Fraunces, JetBrains_Mono, Manrope } from 'next/font/google'
 import './globals.css'
-
-const manrope = Manrope({
-  variable: '--font-manrope',
-  subsets: ['latin'],
-})
-
-const fraunces = Fraunces({
-  variable: '--font-fraunces',
-  subsets: ['latin'],
-})
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: '--font-jetbrains-mono',
-  subsets: ['latin'],
-})
 
 export const metadata: Metadata = {
   title: 'Repo Health Monitor',
@@ -28,13 +12,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${manrope.variable} ${fraunces.variable} ${jetbrainsMono.variable} h-full antialiased`}
-    >
-      <body suppressHydrationWarning className="min-h-full flex flex-col">
-        {children}
-      </body>
+    <html lang="en" className="h-full antialiased">
+      <body className="flex min-h-full flex-col">{children}</body>
     </html>
   )
 }

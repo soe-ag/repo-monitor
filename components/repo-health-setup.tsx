@@ -1,6 +1,7 @@
 'use client'
 
 import { type FormEvent, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
   ExclamationTriangleIcon,
   Link2Icon,
@@ -15,7 +16,9 @@ import {
   CheckCircle2,
   CircleHelp,
   Filter,
+  GitBranch,
   SlidersHorizontal,
+  ShieldCheck,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -541,7 +544,7 @@ export function RepoHealthSetup() {
           )
           setMessage(
             hasCompleted
-              ? `Scan finished at ${new Date().toLocaleTimeString()} and dashboard updated.`
+              ? `Scan finished at ${new Date().toLocaleTimeString('en-US')} and dashboard updated.`
               : 'Scan is still running. We stopped auto-checking; use Scan again or refresh later.'
           )
         }
@@ -773,82 +776,102 @@ export function RepoHealthSetup() {
 
   return (
     <>
-      <div className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-6 py-7 sm:px-3 lg:px-4">
-        <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/60 bg-linear-to-br from-card via-card to-muted/20 px-5 py-4 shadow-sm">
-          <div className="min-w-0">
-            <h1 className="font-heading text-3xl leading-tight tracking-tight">
-              Repo Health Monitor
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Dependency freshness, checklist health, and repository scan controls.
-            </p>
-            {connectionState?.connected ? (
-              <div className="mt-3 flex items-center gap-3">
-                {connectionState.accountAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={connectionState.accountAvatarUrl}
-                    alt="GitHub avatar"
-                    className="size-9 rounded-full border border-border/70 object-cover"
-                  />
-                ) : (
-                  <div className="size-9 rounded-full border border-border/70 bg-muted" />
-                )}
-                <div className="min-w-0">
-                  {connectionState.accountHtmlUrl ? (
-                    <a
-                      href={connectionState.accountHtmlUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="truncate text-sm font-semibold text-foreground underline-offset-2 hover:underline"
-                    >
-                      {connectionState.accountName ??
-                        connectionState.accountLogin ??
-                        'Unknown account'}
-                    </a>
-                  ) : (
-                    <p className="truncate text-sm font-semibold text-foreground">
-                      {connectionState.accountName ??
-                        connectionState.accountLogin ??
-                        'Unknown account'}
-                    </p>
-                  )}
-                  {connectionState.accountLogin ? (
-                    <p className="text-xs text-muted-foreground">@{connectionState.accountLogin}</p>
-                  ) : null}
-                </div>
+      <a
+        href="#repository-grid"
+        className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm font-medium text-foreground focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to repositories
+      </a>
+      <main className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+        <div className="relative overflow-hidden rounded-[1.75rem] border border-border/60 bg-linear-to-br from-card via-card to-muted/20 px-5 py-5 shadow-[0_18px_60px_-30px_oklch(0.35_0.08_250/0.35)] sm:px-7 sm:py-6">
+          <div className="pointer-events-none absolute -right-12 -top-16 size-48 rounded-full bg-primary/5 blur-3xl" />
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <GitBranch className="size-3" aria-hidden="true" />
+                </span>
+                Repository intelligence
               </div>
-            ) : null}
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className="size-8 rounded-full"
-                onClick={toggleTheme}
-                aria-label="Toggle theme"
-                title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              >
-                {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-              </Button>
-              <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
-                {connectionBadge.text}
-              </Badge>
+              <h1 className="font-heading text-3xl leading-tight tracking-tight text-balance sm:text-4xl">
+                Repo health, at a glance.
+              </h1>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                Dependency freshness, checklist health, and repository scan controls.
+              </p>
+              {connectionState?.connected ? (
+                <div className="mt-4 flex items-center gap-3">
+                  {connectionState.accountAvatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={connectionState.accountAvatarUrl}
+                      alt="GitHub avatar"
+                      className="size-9 rounded-full border border-border/70 object-cover"
+                    />
+                  ) : (
+                    <div className="size-9 rounded-full border border-border/70 bg-muted" />
+                  )}
+                  <div className="min-w-0">
+                    {connectionState.accountHtmlUrl ? (
+                      <a
+                        href={connectionState.accountHtmlUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate text-sm font-semibold text-foreground underline-offset-2 hover:underline"
+                      >
+                        {connectionState.accountName ??
+                          connectionState.accountLogin ??
+                          'Unknown account'}
+                      </a>
+                    ) : (
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {connectionState.accountName ??
+                          connectionState.accountLogin ??
+                          'Unknown account'}
+                      </p>
+                    )}
+                    {connectionState.accountLogin ? (
+                      <p className="text-xs text-muted-foreground">
+                        @{connectionState.accountLogin}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <a
-              href="/manual"
-              rel="noreferrer"
-              className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background px-4 text-xs font-medium text-foreground shadow-xs hover:bg-muted"
-            >
-              How scan works →
-            </a>
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="size-8 rounded-full"
+                  onClick={toggleTheme}
+                  aria-label="Toggle theme"
+                  title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                >
+                  {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+                </Button>
+                <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
+                  {connectionBadge.text}
+                </Badge>
+              </div>
+              <Link
+                href="/manual"
+                className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background px-4 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                How scans work <span aria-hidden="true">&rarr;</span>
+              </Link>
+            </div>
           </div>
         </div>
 
         {message ? (
-          <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-2 text-sm text-foreground">
+          <div
+            className="rounded-xl border border-border/60 bg-muted/30 px-4 py-2 text-sm text-foreground"
+            role="status"
+            aria-live="polite"
+          >
             {message}
           </div>
         ) : null}
@@ -856,16 +879,26 @@ export function RepoHealthSetup() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="gap-3 border-border/60 bg-linear-to-br from-card to-muted/20 py-4 shadow-sm">
             <CardHeader className="gap-1 px-5">
-              <CardTitle className="text-lg">GitHub connection</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
+                GitHub connection
+              </CardTitle>
               <CardDescription>Configure your PAT connection.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 px-5 pb-1">
               <form onSubmit={connectWithPat} className="space-y-2.5">
                 {!connectionState?.connected ? (
                   <>
+                    <label htmlFor="github-pat" className="sr-only">
+                      GitHub personal access token
+                    </label>
                     <Input
+                      id="github-pat"
+                      name="github-pat"
                       type="password"
                       placeholder="GitHub PAT (classic or fine-grained)"
+                      autoComplete="off"
+                      spellCheck={false}
                       value={pat}
                       onChange={(event) => setPat(event.target.value)}
                       required
@@ -896,18 +929,22 @@ export function RepoHealthSetup() {
               </form>
 
               {loadingState.loadingConnection ? (
-                <p className="text-sm text-muted-foreground">Loading connection...</p>
+                <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+                  Loading connection...
+                </p>
               ) : (
                 <div className="grid gap-1.5 text-xs text-muted-foreground">
                   <p>Current state: {connectionState?.status ?? 'unknown'}</p>
                   {connectionState?.rateLimitResetAt ? (
                     <p>
                       Rate limit resets:{' '}
-                      {new Date(connectionState.rateLimitResetAt).toLocaleString()}
+                      {new Date(connectionState.rateLimitResetAt).toLocaleString('en-US')}
                     </p>
                   ) : null}
                   {connectionState?.lastValidatedAt ? (
-                    <p>Validated: {new Date(connectionState.lastValidatedAt).toLocaleString()}</p>
+                    <p>
+                      Validated: {new Date(connectionState.lastValidatedAt).toLocaleString('en-US')}
+                    </p>
                   ) : null}
                   {connectionState?.lastError ? <p>Error: {connectionState.lastError}</p> : null}
                 </div>
@@ -930,7 +967,7 @@ export function RepoHealthSetup() {
                 </span>
                 <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
                   Last run:{' '}
-                  {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString() : 'Never'}
+                  {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString('en-US') : 'Never'}
                 </span>
               </div>
 
@@ -945,7 +982,6 @@ export function RepoHealthSetup() {
                     size="sm"
                     onClick={() => void triggerScanAll()}
                     disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
-                    className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
                   >
                     {loadingState.scanningAll ? 'Queueing...' : 'Scan selected'}
                   </Button>
@@ -977,13 +1013,13 @@ export function RepoHealthSetup() {
                   <span className="font-semibold text-foreground">Scan status:</span>{' '}
                   {scanActivity.status === 'running'
                     ? scanActivity.mode === 'all'
-                      ? `running · currently processing ${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? MAX_SCAN_SELECTION} · now scanning ${scanActivity.currentRepositoryName ?? 'selected repositories'}`
-                      : `running · ${scanActivity.currentRepositoryName ?? scanActivity.repositoryName ?? 'selected repository'} (${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? 1})`
+                      ? `Running - processing ${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? MAX_SCAN_SELECTION} - scanning ${scanActivity.currentRepositoryName ?? 'selected repositories'}`
+                      : `Running - ${scanActivity.currentRepositoryName ?? scanActivity.repositoryName ?? 'selected repository'} (${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? 1})`
                     : scanActivity.status === 'completed'
                       ? 'completed'
                       : 'timed out'}
                   {scanActivity.lastCheckedAt
-                    ? ` · last checked ${new Date(scanActivity.lastCheckedAt).toLocaleTimeString()}`
+                    ? ` - last checked ${new Date(scanActivity.lastCheckedAt).toLocaleTimeString('en-US')}`
                     : ''}
                 </div>
               ) : null}
@@ -1078,7 +1114,10 @@ export function RepoHealthSetup() {
         </div>
 
         {loadingState.loadingRepositories ? (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+          <div
+            id="repository-grid"
+            className="grid scroll-mt-6 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5"
+          >
             {Array.from({ length: 8 }).map((_, index) => (
               <Card key={index} className="h-full">
                 <CardHeader>
@@ -1106,7 +1145,10 @@ export function RepoHealthSetup() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+          <div
+            id="repository-grid"
+            className="grid scroll-mt-6 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5"
+          >
             {sortedRepositories.map((repository) => {
               const outdatedPackages = repository.packageFindings.filter(
                 (finding) => finding.status === 'warning'
@@ -1201,14 +1243,15 @@ export function RepoHealthSetup() {
                           Created{' '}
                           {new Date(
                             repository.githubCreatedAt ?? repository._creationTime
-                          ).toLocaleDateString()}
-                          {' · '}Updated{' '}
+                          ).toLocaleDateString('en-US')}
+                          {' - '}
+                          Updated{' '}
                           {new Date(
                             repository.githubUpdatedAt ??
                               repository.pushedAt ??
                               repository.lastScanAt ??
                               repository._creationTime
-                          ).toLocaleDateString()}
+                          ).toLocaleDateString('en-US')}
                         </p>
                       </div>
                     </div>
@@ -1240,7 +1283,7 @@ export function RepoHealthSetup() {
                         <span className="text-[11px] text-muted-foreground">
                           Last scan:{' '}
                           {repository.lastScanAt
-                            ? new Date(repository.lastScanAt).toLocaleString()
+                            ? new Date(repository.lastScanAt).toLocaleString('en-US')
                             : 'Never'}
                         </span>
                       </div>
@@ -1268,8 +1311,7 @@ export function RepoHealthSetup() {
             })}
           </div>
         )}
-      </div>
-
+      </main>
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
