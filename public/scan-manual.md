@@ -10,8 +10,9 @@ For each repository, it currently does these checks:
 
 - Tries to fetch `package.json` from the default branch.
 - Reads `dependencies` and `devDependencies`.
-- For each package, checks the latest npm version.
-- Marks package status as `warning` when updates are needed.
+- For each package, checks the latest npm version and its release date.
+- Ignores patch releases as health warnings. Minor and major releases become warnings only after 90 days, so fresh releases can settle.
+- Surfaces open GitHub Dependabot alerts immediately when the token can access them.
 
 2. Checklist checks
 

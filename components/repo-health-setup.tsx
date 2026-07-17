@@ -128,6 +128,7 @@ const checklistLabels: Record<string, string> = {
   'readme-exists': 'README',
   'readme-freshness': 'README freshness',
   'dependabot-config': 'Dependabot',
+  'security-advisories': 'Security alerts',
 }
 
 const stackAlias: Record<string, string> = {
@@ -1150,7 +1151,7 @@ export function RepoHealthSetup() {
             className="grid scroll-mt-6 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5"
           >
             {sortedRepositories.map((repository) => {
-              const outdatedPackages = repository.packageFindings.filter(
+              const eligibleUpdates = repository.packageFindings.filter(
                 (finding) => finding.status === 'warning'
               )
               const failedChecklist = repository.checklistFindings.filter((finding) =>
@@ -1158,7 +1159,7 @@ export function RepoHealthSetup() {
               )
               const isPerfect =
                 repository.lastScanAt &&
-                outdatedPackages.length === 0 &&
+                eligibleUpdates.length === 0 &&
                 failedChecklist.length === 0
               const stackLogos = findStackLogos(repository)
 
@@ -1227,9 +1228,9 @@ export function RepoHealthSetup() {
                           <p>No package.json found</p>
                         ) : (
                           <p>
-                            Outdated packages:{' '}
+                            Eligible updates:{' '}
                             <span className="font-semibold text-foreground">
-                              {outdatedPackages.length}
+                              {eligibleUpdates.length}
                             </span>
                           </p>
                         )}
@@ -1322,7 +1323,7 @@ export function RepoHealthSetup() {
           {detailRepository ? (
             <div className="space-y-4 text-sm">
               <div>
-                <h3 className="mb-2 font-semibold">Package updates</h3>
+                <h3 className="mb-2 font-semibold">Eligible package updates</h3>
                 {detailRepository.packageFindings.filter((finding) => finding.status === 'warning')
                   .length === 0 ? (
                   <p className="text-muted-foreground">No package updates needed.</p>

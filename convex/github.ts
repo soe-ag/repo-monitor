@@ -1,4 +1,8 @@
-import { DEFAULT_PACKAGE_POLICY, type PackagePolicy } from './constants'
+import {
+  DEFAULT_PACKAGE_POLICY,
+  PACKAGE_UPDATE_MINIMUM_AGE_MS,
+  type PackagePolicy,
+} from './constants'
 
 const GITHUB_API_BASE = 'https://api.github.com'
 const NPM_REGISTRY_BASE = 'https://registry.npmjs.org'
@@ -142,7 +146,9 @@ export function classifyVersionUpdate(
 
 export function statusForPackageUpdate(
   updateType: 'none' | 'patch' | 'minor' | 'major' | 'unknown',
-  policy: PackagePolicy | undefined
+  policy: PackagePolicy | undefined,
+  latestPublishedAt?: number,
+  now = Date.now()
 ): 'ok' | 'warning' | 'unknown' {
   const effectivePolicy = policy ?? DEFAULT_PACKAGE_POLICY
   if (updateType === 'unknown') {
@@ -151,20 +157,26 @@ export function statusForPackageUpdate(
   if (updateType === 'none') {
     return 'ok'
   }
-  if (effectivePolicy === 'any-newer') {
-    return 'warning'
+  if (updateType === 'patch') {
+    return 'ok'
   }
-  if (effectivePolicy === 'minor-or-major') {
-    return updateType === 'major' || updateType === 'minor' ? 'warning' : 'ok'
+  if (!latestPublishedAt || now - latestPublishedAt < PACKAGE_UPDATE_MINIMUM_AGE_MS) {
+    return 'ok'
   }
-  return updateType === 'major' ? 'warning' : 'ok'
+  if (effectivePolicy === 'major-only') {
+    return updateType === 'major' ? 'warning' : 'ok'
+  }
+  return updateType === 'major' || updateType === 'minor' ? 'warning' : 'ok'
 }
 
-export async function fetchNpmLatestVersion(packageName: string): Promise<string | null> {
+export async function fetchNpmLatestVersion(packageName: string): Promise<{
+  version: string
+  publishedAt?: number
+} | null> {
   const encodedPackage = encodeURIComponent(packageName)
-  const response = await fetch(`${NPM_REGISTRY_BASE}/-/package/${encodedPackage}/dist-tags`, {
+  const response = await fetch(`${NPM_REGISTRY_BASE}/${encodedPackage}`, {
     headers: {
-      Accept: 'application/json',
+      Accept: 'application/vnd.npm.install-v1+json',
     },
   })
 
@@ -172,6 +184,17 @@ export async function fetchNpmLatestVersion(packageName: string): Promise<string
     return null
   }
 
-  const data = (await response.json()) as { latest?: string }
-  return data.latest ?? null
+  const data = (await response.json()) as {
+    'dist-tags'?: { latest?: string }
+    time?: Record<string, string>
+  }
+  const version = data['dist-tags']?.latest
+  if (!version) {
+    return null
+  }
+  const publishedAt = data.time?.[version] ? Date.parse(data.time[version]) : NaN
+  return {
+    version,
+    publishedAt: Number.isFinite(publishedAt) ? publishedAt : undefined,
+  }
 }

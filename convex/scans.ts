@@ -49,6 +49,7 @@ type PackageFinding = {
   packageName: string
   currentVersion: string
   latestVersion: string
+  latestPublishedAt?: number
   updateType: 'none' | 'patch' | 'minor' | 'major' | 'unknown'
   status: HealthStatus
 }
@@ -317,6 +318,7 @@ export const saveRepositoryScanResult = mutation({
         packageName: v.string(),
         currentVersion: v.string(),
         latestVersion: v.string(),
+        latestPublishedAt: v.optional(v.number()),
         updateType: v.union(
           v.literal('none'),
           v.literal('patch'),
@@ -376,6 +378,7 @@ export const saveRepositoryScanResult = mutation({
         packageName: finding.packageName,
         currentVersion: finding.currentVersion,
         latestVersion: finding.latestVersion,
+        latestPublishedAt: finding.latestPublishedAt,
         updateType: finding.updateType,
         status: finding.status,
         createdAt: now,
@@ -822,18 +825,23 @@ async function runRepositoryScan(
     const dependenciesToScan = dependencyEntries.slice(0, MAX_DEPENDENCIES_TO_SCAN)
 
     for (const [packageName, currentVersion] of dependenciesToScan) {
-      const latestVersion = await fetchNpmLatestVersion(packageName)
-      const normalizedLatest = latestVersion ?? currentVersion
-      const updateType = latestVersion
-        ? classifyVersionUpdate(currentVersion, latestVersion)
+      const npmLatest = await fetchNpmLatestVersion(packageName)
+      const latestVersion = npmLatest?.version ?? currentVersion
+      const updateType = npmLatest
+        ? classifyVersionUpdate(currentVersion, npmLatest.version)
         : 'unknown'
 
       packageFindings.push({
         packageName,
         currentVersion,
-        latestVersion: normalizedLatest,
+        latestVersion,
+        latestPublishedAt: npmLatest?.publishedAt,
         updateType,
-        status: statusForPackageUpdate(updateType, args.packagePolicy ?? DEFAULT_PACKAGE_POLICY),
+        status: statusForPackageUpdate(
+          updateType,
+          args.packagePolicy ?? DEFAULT_PACKAGE_POLICY,
+          npmLatest?.publishedAt
+        ),
       })
     }
 
@@ -993,6 +1001,8 @@ async function evaluateChecklist(
       repository.default_branch
     ))
 
+  findings.push(await evaluateSecurityAlerts(token, repository))
+
   findings.push({
     checkKey: 'dependabot-config',
     status: dependabotExists ? 'ok' : 'missing',
@@ -1002,6 +1012,48 @@ async function evaluateChecklist(
   return findings
 }
 
+async function evaluateSecurityAlerts(
+  token: string,
+  repository: GitHubRepository
+): Promise<ChecklistFinding> {
+  try {
+    const alerts = await fetchGitHubJson<
+      Array<{
+        state?: string
+        security_advisory?: { severity?: string }
+      }>
+    >(
+      `/repos/${repository.owner.login}/${repository.name}/dependabot/alerts?state=open&per_page=100`,
+      { token }
+    )
+    const openAlerts = alerts.filter((alert) => alert.state === 'open')
+    if (openAlerts.length === 0) {
+      return {
+        checkKey: 'security-advisories',
+        status: 'ok',
+        detail: 'No open Dependabot alerts',
+      }
+    }
+
+    const severities = Array.from(
+      new Set(openAlerts.map((alert) => alert.security_advisory?.severity).filter(Boolean))
+    ).join(', ')
+    return {
+      checkKey: 'security-advisories',
+      status: 'warning',
+      detail: `${openAlerts.length} open Dependabot alert${openAlerts.length === 1 ? '' : 's'}${severities ? ` (${severities})` : ''}`,
+    }
+  } catch (error) {
+    if (error instanceof GitHubHttpError && (error.status === 403 || error.status === 404)) {
+      return {
+        checkKey: 'security-advisories',
+        status: 'unknown',
+        detail: 'Dependabot alerts are unavailable for this token or repository',
+      }
+    }
+    throw error
+  }
+}
 async function directoryExists(
   token: string,
   owner: string,

@@ -76,7 +76,7 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
 
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
-    expect(screen.getByText(/Outdated packages:/)).toBeInTheDocument()
+    expect(screen.getByText(/Eligible updates:/)).toBeInTheDocument()
 
     fireEvent.click(screen.getAllByLabelText('Open details')[0])
 

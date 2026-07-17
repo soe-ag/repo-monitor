@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PACKAGE_UPDATE_MINIMUM_AGE_MS } from './constants'
 import { classifyVersionUpdate, statusForPackageUpdate } from './github'
 
 describe('classifyVersionUpdate', () => {
@@ -12,12 +13,16 @@ describe('classifyVersionUpdate', () => {
 })
 
 describe('statusForPackageUpdate', () => {
-  it('respects package policy thresholds', () => {
-    expect(statusForPackageUpdate('patch', 'any-newer')).toBe('warning')
-    expect(statusForPackageUpdate('patch', 'minor-or-major')).toBe('ok')
-    expect(statusForPackageUpdate('minor', 'minor-or-major')).toBe('warning')
-    expect(statusForPackageUpdate('minor', 'major-only')).toBe('ok')
-    expect(statusForPackageUpdate('major', 'major-only')).toBe('warning')
-    expect(statusForPackageUpdate('unknown', 'major-only')).toBe('unknown')
+  it('ignores patch noise and waits for mature minor and major releases', () => {
+    const now = 1_000_000_000_000
+    const matureRelease = now - PACKAGE_UPDATE_MINIMUM_AGE_MS - 1
+    const freshRelease = now - PACKAGE_UPDATE_MINIMUM_AGE_MS + 1
+
+    expect(statusForPackageUpdate('patch', 'any-newer', matureRelease, now)).toBe('ok')
+    expect(statusForPackageUpdate('minor', 'minor-or-major', matureRelease, now)).toBe('warning')
+    expect(statusForPackageUpdate('minor', 'minor-or-major', freshRelease, now)).toBe('ok')
+    expect(statusForPackageUpdate('major', 'major-only', matureRelease, now)).toBe('warning')
+    expect(statusForPackageUpdate('major', 'major-only', freshRelease, now)).toBe('ok')
+    expect(statusForPackageUpdate('unknown', 'major-only', matureRelease, now)).toBe('unknown')
   })
 })

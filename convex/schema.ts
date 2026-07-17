@@ -62,6 +62,7 @@ export default defineSchema({
     packageName: v.string(),
     currentVersion: v.string(),
     latestVersion: v.string(),
+    latestPublishedAt: v.optional(v.number()),
     updateType: v.union(
       v.literal('none'),
       v.literal('patch'),

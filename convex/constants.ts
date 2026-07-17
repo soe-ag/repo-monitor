@@ -5,6 +5,9 @@ export type HealthStatus = (typeof HEALTH_STATUSES)[number]
 export const README_STALE_MONTHS = 6
 export const README_STALE_MS = README_STALE_MONTHS * 30 * 24 * 60 * 60 * 1000
 
+export const PACKAGE_UPDATE_MINIMUM_AGE_DAYS = 90
+export const PACKAGE_UPDATE_MINIMUM_AGE_MS = PACKAGE_UPDATE_MINIMUM_AGE_DAYS * 24 * 60 * 60 * 1000
+
 export const PACKAGE_POLICIES = ['any-newer', 'minor-or-major', 'major-only'] as const
 
 export type PackagePolicy = (typeof PACKAGE_POLICIES)[number]
