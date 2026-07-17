@@ -77,8 +77,12 @@ describe('RepoHealthSetup', () => {
 
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
     expect(screen.getByText(/Eligible updates:/)).toBeInTheDocument()
+    expect(
+      screen.getByText((_, element) => element?.textContent === 'Checklist: 1 passed / 0 failed')
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Open details (All good)')).toBeInTheDocument()
 
-    fireEvent.click(screen.getAllByLabelText('Open details')[0])
+    fireEvent.click(screen.getByLabelText('Open details (All good)'))
 
     expect(
       await screen.findByText(/Package update findings and checklist details/)
@@ -87,7 +91,7 @@ describe('RepoHealthSetup', () => {
     expect(screen.getByText(/Dependabot config file missing/)).toBeInTheDocument()
   })
 
-  it('renders only all and needs-attention filters', async () => {
+  it('excludes package-only warnings from the needs-attention filter', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -113,7 +117,16 @@ describe('RepoHealthSetup', () => {
               githubUpdatedAt: 1767225600000,
               lastScanAt: 1767225600000,
               lastScanStatus: 'warning',
-              packageFindings: [],
+              packageFindings: [
+                {
+                  _id: 'pkg-1',
+                  packageName: 'react',
+                  currentVersion: '19.0.0',
+                  latestVersion: '19.2.4',
+                  updateType: 'minor',
+                  status: 'warning',
+                },
+              ],
               checklistFindings: [],
             },
           ])
@@ -127,7 +140,7 @@ describe('RepoHealthSetup', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Needs attention/ }))
 
-    expect(screen.queryByRole('button', { name: /Healthy/ })).not.toBeInTheDocument()
+    expect(screen.getByText('No repositories match the current filter.')).toBeInTheDocument()
   })
 
   it('caps scan all selection and request payload to 10 repositories', async () => {
@@ -331,7 +344,9 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
 
-    fireEvent.click(screen.getAllByLabelText('Open details')[0])
+    expect(screen.getByLabelText('Open details (All good)')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Open details (All good)'))
 
     expect(await screen.findByText(/react/)).toBeInTheDocument()
     expect(screen.queryByText(/zod/)).not.toBeInTheDocument()

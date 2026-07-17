@@ -11,6 +11,7 @@ import {
 import {
   evaluateReadmeFreshness,
   evaluateTestsConfigured,
+  isRequiredChecklistFinding,
   summarizeStatuses,
   type ChecklistFinding,
 } from './checklist'
@@ -876,7 +877,9 @@ async function runRepositoryScan(
 
   const combinedStatuses = [
     ...packageFindings.map((finding) => finding.status),
-    ...checklistFindings.map((finding) => finding.status),
+    ...checklistFindings
+      .filter((finding) => isRequiredChecklistFinding(finding.checkKey))
+      .map((finding) => finding.status),
   ]
   const repositoryStatus = summarizeStatuses(combinedStatuses)
 

@@ -131,6 +131,10 @@ const checklistLabels: Record<string, string> = {
   'security-advisories': 'Security alerts',
 }
 
+function isOptionalChecklistFinding(checkKey: string) {
+  return checkKey === 'dependabot-config'
+}
+
 const stackAlias: Record<string, string> = {
   next: 'next.js',
   react: 'react',
@@ -180,7 +184,22 @@ function needsAttention(status: HealthStatus | undefined) {
   return status === 'warning' || status === 'missing' || status === 'stale' || status === 'error'
 }
 
-function ChecklistStatusIcon({ status }: { status: HealthStatus }) {
+function hasRequiredChecklistAttention(repository: RepositoryHealthCard) {
+  return repository.checklistFindings.some(
+    (finding) => !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
+  )
+}
+
+function ChecklistStatusIcon({
+  status,
+  optional = false,
+}: {
+  status: HealthStatus
+  optional?: boolean
+}) {
+  if (optional && status !== 'ok') {
+    return <CircleHelp className="size-4 text-muted-foreground" aria-hidden />
+  }
   if (status === 'ok') {
     return <CheckCircle2 className="size-4 text-emerald-500" aria-hidden />
   }
@@ -267,9 +286,7 @@ export function RepoHealthSetup() {
     })
 
     if (filter === 'needs-attention') {
-      return repositoriesWithinYear.filter((repository) =>
-        needsAttention(repository.lastScanStatus)
-      )
+      return repositoriesWithinYear.filter(hasRequiredChecklistAttention)
     }
     if (filter === 'has-package-json') {
       return repositoriesWithinYear.filter((repository) => repository.hasPackageJson === true)
@@ -306,13 +323,17 @@ export function RepoHealthSetup() {
 
   const filterCounts = useMemo(() => {
     const all = repositories.length
-    const needs = repositories.filter((repository) =>
-      needsAttention(repository.lastScanStatus)
-    ).length
+    const needs = repositories.filter(hasRequiredChecklistAttention).length
     const hasPackageJson = repositories.filter(
       (repository) => repository.hasPackageJson === true
     ).length
     return { all, needs, hasPackageJson }
+  }, [repositories])
+
+  const checklistStats = useMemo(() => {
+    const scannedRepositories = repositories.filter((repository) => Boolean(repository.lastScanAt))
+    const failed = scannedRepositories.filter(hasRequiredChecklistAttention).length
+    return { passed: scannedRepositories.length - failed, failed }
   }, [repositories])
 
   const lastScanAllRunAt = useMemo(() => {
@@ -762,7 +783,7 @@ export function RepoHealthSetup() {
 
       logos.push({ name: normalized, iconUrl: route })
       seen.add(normalized)
-      if (logos.length >= 4) {
+      if (logos.length >= 3) {
         break
       }
     }
@@ -784,88 +805,7 @@ export function RepoHealthSetup() {
         Skip to repositories
       </a>
       <main className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
-        <div className="relative overflow-hidden rounded-[1.75rem] border border-border/60 bg-linear-to-br from-card via-card to-muted/20 px-5 py-5 shadow-[0_18px_60px_-30px_oklch(0.35_0.08_250/0.35)] sm:px-7 sm:py-6">
-          <div className="pointer-events-none absolute -right-12 -top-16 size-48 rounded-full bg-primary/5 blur-3xl" />
-          <div className="relative flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <GitBranch className="size-3" aria-hidden="true" />
-                </span>
-                Repository intelligence
-              </div>
-              <h1 className="font-heading text-3xl leading-tight tracking-tight text-balance sm:text-4xl">
-                Repo health, at a glance.
-              </h1>
-              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-                Dependency freshness, checklist health, and repository scan controls.
-              </p>
-              {connectionState?.connected ? (
-                <div className="mt-4 flex items-center gap-3">
-                  {connectionState.accountAvatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={connectionState.accountAvatarUrl}
-                      alt="GitHub avatar"
-                      className="size-9 rounded-full border border-border/70 object-cover"
-                    />
-                  ) : (
-                    <div className="size-9 rounded-full border border-border/70 bg-muted" />
-                  )}
-                  <div className="min-w-0">
-                    {connectionState.accountHtmlUrl ? (
-                      <a
-                        href={connectionState.accountHtmlUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate text-sm font-semibold text-foreground underline-offset-2 hover:underline"
-                      >
-                        {connectionState.accountName ??
-                          connectionState.accountLogin ??
-                          'Unknown account'}
-                      </a>
-                    ) : (
-                      <p className="truncate text-sm font-semibold text-foreground">
-                        {connectionState.accountName ??
-                          connectionState.accountLogin ??
-                          'Unknown account'}
-                      </p>
-                    )}
-                    {connectionState.accountLogin ? (
-                      <p className="text-xs text-muted-foreground">
-                        @{connectionState.accountLogin}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  className="size-8 rounded-full"
-                  onClick={toggleTheme}
-                  aria-label="Toggle theme"
-                  title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                >
-                  {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-                </Button>
-                <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
-                  {connectionBadge.text}
-                </Badge>
-              </div>
-              <Link
-                href="/manual"
-                className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background px-4 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                How scans work <span aria-hidden="true">&rarr;</span>
-              </Link>
-            </div>
-          </div>
-        </div>
+
 
         {message ? (
           <div
@@ -878,78 +818,149 @@ export function RepoHealthSetup() {
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="gap-3 border-border/60 bg-linear-to-br from-card to-muted/20 py-4 shadow-sm">
-            <CardHeader className="gap-1 px-5">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <ShieldCheck className="size-4 text-emerald-600" aria-hidden="true" />
-                GitHub connection
-              </CardTitle>
-              <CardDescription>Configure your PAT connection.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 px-5 pb-1">
-              <form onSubmit={connectWithPat} className="space-y-2.5">
-                {!connectionState?.connected ? (
-                  <>
-                    <label htmlFor="github-pat" className="sr-only">
-                      GitHub personal access token
-                    </label>
-                    <Input
-                      id="github-pat"
-                      name="github-pat"
-                      type="password"
-                      placeholder="GitHub PAT (classic or fine-grained)"
-                      autoComplete="off"
-                      spellCheck={false}
-                      value={pat}
-                      onChange={(event) => setPat(event.target.value)}
-                      required
-                      className="h-10 rounded-xl"
-                    />
-                    <Button
-                      type="submit"
-                      disabled={loadingState.connecting}
-                      className="h-9 rounded-full px-5"
-                    >
-                      {loadingState.connecting ? 'Connecting...' : 'Connect GitHub'}
-                    </Button>
-                  </>
-                ) : (
-                  <div className="pt-1">
+          <Card className="relative overflow-hidden gap-3 border-border/60 bg-linear-to-br from-card via-card to-emerald-500/5 py-4 shadow-sm">
+            <div
+              className="pointer-events-none absolute -right-12 -top-12 size-32 rounded-full bg-emerald-500/10 blur-3xl"
+              aria-hidden="true"
+            />
+            <CardHeader className="relative gap-2 px-5 pb-2">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700">
+                    <GitBranch className="size-3.5" aria-hidden="true" />
+                  </span>
+                  Repository overview
+                </CardTitle>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <div className="flex items-center gap-2">
                     <Button
                       type="button"
+                      size="icon"
                       variant="outline"
-                      className="h-9 rounded-full px-5"
+                      className="size-8 rounded-full bg-background/80"
+                      onClick={toggleTheme}
+                      aria-label="Toggle theme"
+                      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                    >
+                      {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+                    </Button>
+                    <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
+                      {connectionBadge.text}
+                    </Badge>
+                  </div>
+                  {connectionState?.connected ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-full px-3 text-xs"
                       onClick={() => setDeleteDialogOpen(true)}
                       disabled={loadingState.deletingConnection}
                     >
                       <TrashIcon />
                       Delete token
                     </Button>
+                  ) : null}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <h1 className="font-heading text-2xl leading-tight tracking-tight text-balance sm:text-3xl">
+                  Repo health, at a glance.
+                </h1>
+                <CardDescription className="mt-1">
+                  Connection, checklist results, and repository filters in one place.
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+                {connectionState?.connected ? (
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    {connectionState.accountAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={connectionState.accountAvatarUrl}
+                        alt="GitHub avatar"
+                        className="size-8 rounded-full border border-border/70 object-cover"
+                      />
+                    ) : (
+                      <div className="size-8 rounded-full border border-border/70 bg-muted" />
+                    )}
+                    <div className="min-w-0">
+                      {connectionState.accountHtmlUrl ? (
+                        <a
+                          href={connectionState.accountHtmlUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-sm font-semibold text-foreground underline-offset-2 hover:underline"
+                        >
+                          {connectionState.accountName ?? connectionState.accountLogin ?? 'Unknown account'}
+                        </a>
+                      ) : (
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {connectionState.accountName ?? connectionState.accountLogin ?? 'Unknown account'}
+                        </p>
+                      )}
+                      {connectionState.accountLogin ? (
+                        <p className="text-xs text-muted-foreground">@{connectionState.accountLogin}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                    <ShieldCheck className="size-4" aria-hidden="true" />
+                    Connect GitHub to start scanning repositories.
                   </div>
                 )}
-              </form>
+                <Link
+                  href="/manual"
+                  className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  How scans work <span aria-hidden="true">&rarr;</span>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="relative space-y-3 px-5 pb-1">
+              {!connectionState?.connected ? (
+                <form onSubmit={connectWithPat} className="space-y-2.5">
+                  <label htmlFor="github-pat" className="sr-only">
+                    GitHub personal access token
+                  </label>
+                  <Input
+                    id="github-pat"
+                    name="github-pat"
+                    type="password"
+                    placeholder="GitHub PAT (classic or fine-grained)"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={pat}
+                    onChange={(event) => setPat(event.target.value)}
+                    required
+                    className="h-10 rounded-xl"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={loadingState.connecting}
+                    className="h-9 rounded-full px-5"
+                  >
+                    {loadingState.connecting ? 'Connecting...' : 'Connect GitHub'}
+                  </Button>
+                </form>
+              ) : null}
 
               {loadingState.loadingConnection ? (
                 <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
                   Loading connection...
                 </p>
-              ) : (
+              ) : connectionState?.rateLimitResetAt || connectionState?.lastError ? (
                 <div className="grid gap-1.5 text-xs text-muted-foreground">
-                  <p>Current state: {connectionState?.status ?? 'unknown'}</p>
-                  {connectionState?.rateLimitResetAt ? (
+                  {connectionState.rateLimitResetAt ? (
                     <p>
                       Rate limit resets:{' '}
                       {new Date(connectionState.rateLimitResetAt).toLocaleString('en-US')}
                     </p>
                   ) : null}
-                  {connectionState?.lastValidatedAt ? (
-                    <p>
-                      Validated: {new Date(connectionState.lastValidatedAt).toLocaleString('en-US')}
-                    </p>
-                  ) : null}
-                  {connectionState?.lastError ? <p>Error: {connectionState.lastError}</p> : null}
+                  {connectionState.lastError ? <p>Error: {connectionState.lastError}</p> : null}
                 </div>
-              )}
+              ) : null}
             </CardContent>
           </Card>
 
@@ -969,6 +980,12 @@ export function RepoHealthSetup() {
                 <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
                   Last run:{' '}
                   {lastScanAllRunAt ? new Date(lastScanAllRunAt).toLocaleString('en-US') : 'Never'}
+                </span>
+                <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
+                  Checklist:{' '}
+                  <span className="text-emerald-700">{checklistStats.passed} passed</span>
+                  {' / '}
+                  <span className="text-amber-700">{checklistStats.failed} failed</span>
                 </span>
               </div>
 
@@ -1154,13 +1171,11 @@ export function RepoHealthSetup() {
               const eligibleUpdates = repository.packageFindings.filter(
                 (finding) => finding.status === 'warning'
               )
-              const failedChecklist = repository.checklistFindings.filter((finding) =>
-                needsAttention(finding.status)
+              const failedChecklist = repository.checklistFindings.filter(
+                (finding) =>
+                  !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
               )
-              const isPerfect =
-                repository.lastScanAt &&
-                eligibleUpdates.length === 0 &&
-                failedChecklist.length === 0
+              const isPerfect = Boolean(repository.lastScanAt) && failedChecklist.length === 0
               const stackLogos = findStackLogos(repository)
 
               return (
@@ -1351,10 +1366,14 @@ export function RepoHealthSetup() {
                   <div className="space-y-2">
                     {detailRepository.checklistFindings.map((finding) => (
                       <div key={finding._id} className="flex items-start gap-2 text-xs">
-                        <ChecklistStatusIcon status={finding.status} />
+                        <ChecklistStatusIcon
+                          status={finding.status}
+                          optional={isOptionalChecklistFinding(finding.checkKey)}
+                        />
                         <span>
                           <span className="font-medium">
                             {checklistLabels[finding.checkKey] ?? finding.checkKey}
+                            {isOptionalChecklistFinding(finding.checkKey) ? ' (optional)' : ''}
                           </span>
                           {finding.detail ? ` - ${finding.detail}` : ''}
                         </span>

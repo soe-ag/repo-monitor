@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { evaluateReadmeFreshness, evaluateTestsConfigured, summarizeStatuses } from './checklist'
+import {
+  evaluateReadmeFreshness,
+  evaluateTestsConfigured,
+  isRequiredChecklistFinding,
+  summarizeStatuses,
+} from './checklist'
 
 describe('evaluateTestsConfigured', () => {
   it('returns missing when test script is absent', () => {
@@ -44,5 +49,12 @@ describe('summarizeStatuses', () => {
     expect(summarizeStatuses(['stale', 'warning'])).toBe('stale')
     expect(summarizeStatuses(['error', 'ok'])).toBe('error')
     expect(summarizeStatuses([])).toBe('unknown')
+  })
+})
+
+describe('isRequiredChecklistFinding', () => {
+  it('treats Dependabot configuration as optional', () => {
+    expect(isRequiredChecklistFinding('dependabot-config')).toBe(false)
+    expect(isRequiredChecklistFinding('tests-configured')).toBe(true)
   })
 })

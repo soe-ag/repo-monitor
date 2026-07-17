@@ -6,6 +6,10 @@ export type ChecklistFinding = {
   detail?: string
 }
 
+export function isRequiredChecklistFinding(checkKey: string) {
+  return checkKey !== 'dependabot-config'
+}
+
 export function evaluateTestsConfigured(testScript: string | undefined): ChecklistFinding {
   if (!testScript || testScript.includes('no test specified')) {
     return {
