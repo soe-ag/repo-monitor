@@ -16,6 +16,10 @@ updates:
         dependency-type: development
     assignees:
       - "soe-ag"
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 90
+      semver-patch-days: 90
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -27,3 +31,7 @@ updates:
     open-pull-requests-limit: 5
     assignees:
       - "soe-ag"
+    cooldown:
+      semver-major-days: 30
+      semver-minor-days: 90
+      semver-patch-days: 90
