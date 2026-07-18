@@ -14,6 +14,8 @@ updates:
         dependency-type: production
       development-dependencies:
         dependency-type: development
+    assignees:
+      - "soe-ag"
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -23,3 +25,5 @@ updates:
       time: "04:30"
       timezone: "UTC"
     open-pull-requests-limit: 5
+    assignees:
+      - "soe-ag"
