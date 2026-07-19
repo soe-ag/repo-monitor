@@ -36,6 +36,19 @@ export default defineSchema({
     githubCreatedAt: v.optional(v.number()),
     githubUpdatedAt: v.optional(v.number()),
     pushedAt: v.optional(v.number()),
+    latestCommitSha: v.optional(v.string()),
+    latestCommitUrl: v.optional(v.string()),
+    latestCommitBuildStatus: v.optional(
+      v.union(
+        v.literal('passing'),
+        v.literal('failing'),
+        v.literal('pending'),
+        v.literal('not-configured'),
+        v.literal('unknown')
+      )
+    ),
+    latestCommitBuildDetail: v.optional(v.string()),
+    latestCommitBuildCheckedAt: v.optional(v.number()),
     hasPackageJson: v.optional(v.boolean()),
     lastScanAt: v.optional(v.number()),
     lastScanRunId: v.optional(v.id('scanRuns')),
