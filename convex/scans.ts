@@ -20,7 +20,7 @@ import {
   classifyVersionUpdate,
   fetchGitHubJson,
   fetchNpmLatestVersion,
-  summarizeCheckRuns,
+  summarizeLatestCommitBuild,
   statusForPackageUpdate,
   type LatestCommitBuildStatus,
 } from './github'
@@ -941,13 +941,27 @@ async function fetchLatestCommitBuild(
       )}`,
       { token }
     )
-    const checkRuns = await fetchGitHubJson<{
-      check_runs: Array<{ status: string; conclusion?: string | null }>
-    }>(
-      `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/check-runs?per_page=100`,
-      { token }
+    const [checkRunsResult, commitStatusResult] = await Promise.allSettled([
+      fetchGitHubJson<{
+        check_runs: Array<{ status: string; conclusion?: string | null }>
+      }>(
+        `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/check-runs?per_page=100`,
+        { token }
+      ),
+      fetchGitHubJson<{ state?: string }>(
+        `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/status`,
+        { token }
+      ),
+    ])
+
+    if (checkRunsResult.status === 'rejected' && commitStatusResult.status === 'rejected') {
+      throw checkRunsResult.reason
+    }
+
+    const summary = summarizeLatestCommitBuild(
+      checkRunsResult.status === 'fulfilled' ? checkRunsResult.value.check_runs : [],
+      commitStatusResult.status === 'fulfilled' ? commitStatusResult.value : undefined
     )
-    const summary = summarizeCheckRuns(checkRuns.check_runs)
     return {
       status: summary.status,
       commitSha: commit.sha,

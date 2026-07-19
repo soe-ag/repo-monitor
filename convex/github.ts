@@ -25,6 +25,10 @@ type GitHubCheckRun = {
   conclusion?: string | null
 }
 
+type GitHubCommitStatus = {
+  state?: string
+}
+
 export class GitHubHttpError extends Error {
   status: number
   rateLimitResetAt: number | null
@@ -92,6 +96,29 @@ export function summarizeCheckRuns(checkRuns: GitHubCheckRun[]): {
     status: 'passing',
     detail: `${checkRuns.length} GitHub check${checkRuns.length === 1 ? '' : 's'} passed`,
   }
+}
+
+export function summarizeLatestCommitBuild(
+  checkRuns: GitHubCheckRun[],
+  commitStatus?: GitHubCommitStatus
+): { status: LatestCommitBuildStatus; detail: string } {
+  if (commitStatus?.state === 'failure' || commitStatus?.state === 'error') {
+    return {
+      status: 'failing',
+      detail: `GitHub commit status is ${commitStatus.state}`,
+    }
+  }
+
+  if (commitStatus?.state === 'pending') {
+    return { status: 'pending', detail: 'GitHub commit status is still running' }
+  }
+
+  const checkRunSummary = summarizeCheckRuns(checkRuns)
+  if (checkRunSummary.status === 'not-configured' && commitStatus?.state === 'success') {
+    return { status: 'passing', detail: 'GitHub commit status passed' }
+  }
+
+  return checkRunSummary
 }
 
 export async function validatePat(token: string): Promise<{

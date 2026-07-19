@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { PACKAGE_UPDATE_MINIMUM_AGE_MS } from './constants'
-import { classifyVersionUpdate, statusForPackageUpdate, summarizeCheckRuns } from './github'
+import {
+  classifyVersionUpdate,
+  statusForPackageUpdate,
+  summarizeCheckRuns,
+  summarizeLatestCommitBuild,
+} from './github'
 
 describe('classifyVersionUpdate', () => {
   it('detects patch, minor, major, none, and unknown changes', () => {
@@ -22,6 +27,14 @@ describe('summarizeCheckRuns', () => {
     expect(summarizeCheckRuns([{ status: 'completed', conclusion: 'success' }]).status).toBe(
       'passing'
     )
+  })
+})
+
+describe('summarizeLatestCommitBuild', () => {
+  it('uses the legacy GitHub commit status when check runs are absent', () => {
+    expect(summarizeLatestCommitBuild([], { state: 'failure' }).status).toBe('failing')
+    expect(summarizeLatestCommitBuild([], { state: 'success' }).status).toBe('passing')
+    expect(summarizeLatestCommitBuild([], { state: 'pending' }).status).toBe('pending')
   })
 })
 
