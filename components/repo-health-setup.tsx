@@ -42,6 +42,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
 type LatestCommitBuildStatus = 'passing' | 'failing'
+type LatestDeploymentStatus = 'deployed' | 'not-deployed'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
 type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json'
 type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
@@ -91,6 +92,11 @@ type RepositoryHealthCard = {
   latestCommitBuildStatus?: LatestCommitBuildStatus
   latestCommitBuildDetail?: string
   latestCommitBuildCheckedAt?: number
+  latestDeploymentStatus?: LatestDeploymentStatus
+  latestDeploymentEnvironment?: string
+  latestDeploymentUrl?: string
+  latestDeploymentDetail?: string
+  latestDeploymentCheckedAt?: number
   lastScanAt?: number
   lastScanStatus?: HealthStatus
   lastScanError?: string
@@ -194,6 +200,7 @@ function needsAttention(status: HealthStatus | undefined) {
 function hasRequiredChecklistAttention(repository: RepositoryHealthCard) {
   return (
     repository.latestCommitBuildStatus === 'failing' ||
+    repository.latestDeploymentStatus === 'not-deployed' ||
     repository.checklistFindings.some(
       (finding) => !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
     )
@@ -206,6 +213,17 @@ function buildStatusLabel(status: LatestCommitBuildStatus) {
 
 function BuildStatusIcon({ status }: { status: LatestCommitBuildStatus }) {
   if (status === 'passing') {
+    return <CheckCircle2 className="size-4 text-emerald-500" aria-hidden />
+  }
+  return <AlertTriangle className="size-4 text-red-500" aria-hidden />
+}
+
+function deploymentStatusLabel(status: LatestDeploymentStatus) {
+  return status === 'deployed' ? 'Deployed' : 'Not deployed'
+}
+
+function DeploymentStatusIcon({ status }: { status: LatestDeploymentStatus }) {
+  if (status === 'deployed') {
     return <CheckCircle2 className="size-4 text-emerald-500" aria-hidden />
   }
   return <AlertTriangle className="size-4 text-red-500" aria-hidden />
@@ -1206,7 +1224,8 @@ export function RepoHealthSetup() {
               const isPerfect =
                 Boolean(repository.lastScanAt) &&
                 failedChecklist.length === 0 &&
-                repository.latestCommitBuildStatus !== 'failing'
+                repository.latestCommitBuildStatus !== 'failing' &&
+                repository.latestDeploymentStatus !== 'not-deployed'
               const stackLogos = findStackLogos(repository)
 
               return (
@@ -1292,6 +1311,37 @@ export function RepoHealthSetup() {
                             ) : (
                               <span>{buildStatusLabel(repository.latestCommitBuildStatus)}</span>
                             )}
+                          </div>
+                        ) : null}
+                        {repository.latestDeploymentStatus ? (
+                          <div
+                            className={`flex items-center gap-1.5 font-medium ${
+                              repository.latestDeploymentStatus === 'not-deployed'
+                                ? 'text-red-600'
+                                : 'text-emerald-600'
+                            }`}
+                            title={repository.latestDeploymentDetail}
+                          >
+                            <DeploymentStatusIcon status={repository.latestDeploymentStatus} />
+                            {repository.latestDeploymentUrl ? (
+                              <a
+                                href={repository.latestDeploymentUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {deploymentStatusLabel(repository.latestDeploymentStatus)}
+                              </a>
+                            ) : (
+                              <span>
+                                {deploymentStatusLabel(repository.latestDeploymentStatus)}
+                              </span>
+                            )}
+                            {repository.latestDeploymentEnvironment ? (
+                              <span className="font-normal text-muted-foreground">
+                                ({repository.latestDeploymentEnvironment})
+                              </span>
+                            ) : null}
                           </div>
                         ) : null}
                         {repository.hasPackageJson === false ? (
@@ -1419,6 +1469,39 @@ export function RepoHealthSetup() {
                     {detailRepository.latestCommitBuildDetail ? (
                       <span className="text-muted-foreground">
                         - {detailRepository.latestCommitBuildDetail}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {detailRepository.latestDeploymentStatus ? (
+                <div>
+                  <h3 className="mb-2 font-semibold">Deployment</h3>
+                  <div className="flex items-center gap-2 text-xs">
+                    <DeploymentStatusIcon status={detailRepository.latestDeploymentStatus} />
+                    {detailRepository.latestDeploymentUrl ? (
+                      <a
+                        href={detailRepository.latestDeploymentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium underline-offset-2 hover:underline"
+                      >
+                        {deploymentStatusLabel(detailRepository.latestDeploymentStatus)}
+                      </a>
+                    ) : (
+                      <span className="font-medium">
+                        {deploymentStatusLabel(detailRepository.latestDeploymentStatus)}
+                      </span>
+                    )}
+                    {detailRepository.latestDeploymentEnvironment ? (
+                      <span className="text-muted-foreground">
+                        {detailRepository.latestDeploymentEnvironment}
+                      </span>
+                    ) : null}
+                    {detailRepository.latestDeploymentDetail ? (
+                      <span className="text-muted-foreground">
+                        - {detailRepository.latestDeploymentDetail}
                       </span>
                     ) : null}
                   </div>

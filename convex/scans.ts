@@ -20,9 +20,13 @@ import {
   classifyVersionUpdate,
   fetchGitHubJson,
   fetchNpmLatestVersion,
+  summarizeDeployments,
   summarizeLatestCommitBuild,
   statusForPackageUpdate,
+  type GitHubDeployment,
+  type GitHubDeploymentStatus,
   type LatestCommitBuildStatus,
+  type LatestDeploymentStatus,
 } from './github'
 import { resolveGitHubToken } from './tokenSource'
 
@@ -64,7 +68,15 @@ type LatestCommitBuild = {
   detail: string
 }
 
+type LatestDeployment = {
+  status: LatestDeploymentStatus
+  environment?: string
+  url?: string
+  detail: string
+}
+
 const MAX_DEPENDENCIES_TO_SCAN = 300
+const MAX_DEPLOYMENTS_TO_CHECK = 10
 
 export const listRepositories = query({
   args: {
@@ -377,6 +389,14 @@ export const saveRepositoryScanResult = mutation({
         detail: v.string(),
       })
     ),
+    latestDeployment: v.optional(
+      v.object({
+        status: v.union(v.literal('deployed'), v.literal('not-deployed')),
+        environment: v.optional(v.string()),
+        url: v.optional(v.string()),
+        detail: v.string(),
+      })
+    ),
   },
   handler: async (ctx, args) => {
     const now = Date.now()
@@ -389,6 +409,15 @@ export const saveRepositoryScanResult = mutation({
           latestCommitBuildCheckedAt: now,
         }
       : {}
+    const deploymentStatusUpdate = args.latestDeployment
+      ? {
+          latestDeploymentStatus: args.latestDeployment.status,
+          latestDeploymentEnvironment: args.latestDeployment.environment,
+          latestDeploymentUrl: args.latestDeployment.url,
+          latestDeploymentDetail: args.latestDeployment.detail,
+          latestDeploymentCheckedAt: now,
+        }
+      : {}
 
     await ctx.db.patch(args.repositoryId, {
       hasPackageJson: args.hasPackageJson,
@@ -397,6 +426,7 @@ export const saveRepositoryScanResult = mutation({
       lastScanStatus: args.repositoryStatus,
       lastScanError: args.repositoryError,
       ...buildStatusUpdate,
+      ...deploymentStatusUpdate,
       updatedAt: now,
     })
 
@@ -840,8 +870,11 @@ async function runRepositoryScan(
     scanRunId: Id<'scanRuns'>
   }
 ) {
-  const latestCommitBuild = await fetchLatestCommitBuild(args.connectionToken, args.repository)
-  const packageJsonResult = await fetchPackageJson(args.connectionToken, args.repository)
+  const [latestCommitBuild, latestDeployment, packageJsonResult] = await Promise.all([
+    fetchLatestCommitBuild(args.connectionToken, args.repository),
+    fetchLatestDeployment(args.connectionToken, args.repository),
+    fetchPackageJson(args.connectionToken, args.repository),
+  ])
   let dependencyCapDetail: string | null = null
 
   const packageFindings: PackageFinding[] = []
@@ -921,7 +954,46 @@ async function runRepositoryScan(
     repositoryStatus,
     repositoryError: packageJsonResult.ok ? undefined : packageJsonResult.error,
     ...(latestCommitBuild ? { latestCommitBuild } : {}),
+    ...(latestDeployment ? { latestDeployment } : {}),
   })
+}
+
+async function fetchLatestDeployment(
+  token: string,
+  repository: GitHubRepository
+): Promise<LatestDeployment | null> {
+  try {
+    const deployments = await fetchGitHubJson<GitHubDeployment[]>(
+      `/repos/${repository.owner.login}/${repository.name}/deployments?per_page=${MAX_DEPLOYMENTS_TO_CHECK}`,
+      { token }
+    )
+    const persistentDeployments = deployments
+      .filter((deployment) => !deployment.transient_environment)
+      .sort((left, right) => Date.parse(right.created_at ?? '') - Date.parse(left.created_at ?? ''))
+
+    const deploymentStatuses = await Promise.allSettled(
+      persistentDeployments.map(async (deployment) => {
+        const statuses = await fetchGitHubJson<GitHubDeploymentStatus[]>(
+          `/repos/${repository.owner.login}/${repository.name}/deployments/${deployment.id}/statuses?per_page=100`,
+          { token }
+        )
+        const latestStatus = statuses.sort(
+          (left, right) => Date.parse(right.created_at ?? '') - Date.parse(left.created_at ?? '')
+        )[0]
+        return { deployment, latestStatus }
+      })
+    )
+
+    const summary = summarizeDeployments(
+      deploymentStatuses.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+    )
+    if (summary?.status === 'not-deployed' && deployments.length === MAX_DEPLOYMENTS_TO_CHECK) {
+      return null
+    }
+    return summary
+  } catch {
+    return null
+  }
 }
 
 async function fetchLatestCommitBuild(

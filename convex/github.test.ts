@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { PACKAGE_UPDATE_MINIMUM_AGE_MS } from './constants'
-import { classifyVersionUpdate, statusForPackageUpdate, summarizeLatestCommitBuild } from './github'
+import {
+  classifyVersionUpdate,
+  statusForPackageUpdate,
+  summarizeDeployments,
+  summarizeLatestCommitBuild,
+} from './github'
 
 describe('classifyVersionUpdate', () => {
   it('detects patch, minor, major, none, and unknown changes', () => {
@@ -25,6 +30,71 @@ describe('summarizeLatestCommitBuild', () => {
     expect(summarizeLatestCommitBuild([], { state: 'pending' })).toBeNull()
     expect(summarizeLatestCommitBuild([{ status: 'in_progress' }])).toBeNull()
     expect(summarizeLatestCommitBuild([])).toBeNull()
+  })
+})
+
+describe('summarizeDeployments', () => {
+  it('reports an active successful deployment', () => {
+    expect(
+      summarizeDeployments([
+        {
+          deployment: { id: 1, environment: 'Production' },
+          latestStatus: {
+            state: 'success',
+            environment_url: 'https://example.com',
+          },
+        },
+      ])
+    ).toMatchObject({
+      status: 'deployed',
+      environment: 'Production',
+      url: 'https://example.com',
+    })
+  })
+
+  it('keeps a repository deployed while a newer deployment is running', () => {
+    expect(
+      summarizeDeployments([
+        {
+          deployment: { id: 2, environment: 'Production' },
+          latestStatus: { state: 'in_progress' },
+        },
+        {
+          deployment: { id: 1, environment: 'Production' },
+          latestStatus: { state: 'success' },
+        },
+      ])?.status
+    ).toBe('deployed')
+  })
+
+  it('keeps a repository deployed when an older successful deployment remains active', () => {
+    expect(
+      summarizeDeployments([
+        {
+          deployment: { id: 2, environment: 'Production' },
+          latestStatus: { state: 'failure' },
+        },
+        {
+          deployment: { id: 1, environment: 'Production' },
+          latestStatus: { state: 'success' },
+        },
+      ])?.status
+    ).toBe('deployed')
+  })
+
+  it('reports no active deployment only when GitHub has a completed deployment record', () => {
+    expect(
+      summarizeDeployments([
+        {
+          deployment: { id: 1, environment: 'Production' },
+          latestStatus: { state: 'failure' },
+        },
+      ])?.status
+    ).toBe('not-deployed')
+    expect(summarizeDeployments([])).toBeNull()
+    expect(
+      summarizeDeployments([{ deployment: { id: 1 }, latestStatus: { state: 'in_progress' } }])
+    ).toBeNull()
   })
 })
 

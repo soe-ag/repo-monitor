@@ -14,6 +14,7 @@ type FetchJsonOptions = {
 }
 
 export type LatestCommitBuildStatus = 'passing' | 'failing'
+export type LatestDeploymentStatus = 'deployed' | 'not-deployed'
 
 type GitHubCheckRun = {
   status: string
@@ -22,6 +23,28 @@ type GitHubCheckRun = {
 
 type GitHubCommitStatus = {
   state?: string
+}
+
+export type GitHubDeployment = {
+  id: number
+  environment?: string | null
+  created_at?: string
+  transient_environment?: boolean
+}
+
+export type GitHubDeploymentStatus = {
+  state?: string
+  description?: string | null
+  environment?: string | null
+  environment_url?: string | null
+  target_url?: string | null
+  log_url?: string | null
+  created_at?: string
+}
+
+type DeploymentWithStatus = {
+  deployment: GitHubDeployment
+  latestStatus?: GitHubDeploymentStatus
 }
 
 export class GitHubHttpError extends Error {
@@ -101,6 +124,68 @@ export function summarizeLatestCommitBuild(
   }
 
   return null
+}
+
+export function summarizeDeployments(deployments: DeploymentWithStatus[]): {
+  status: LatestDeploymentStatus
+  environment?: string
+  url?: string
+  detail: string
+} | null {
+  const completedDeployments = deployments.filter(({ latestStatus }) => latestStatus?.state)
+  const activeDeployment = completedDeployments.find(
+    ({ latestStatus }) => latestStatus?.state === 'success'
+  )
+
+  if (activeDeployment?.latestStatus) {
+    const environment =
+      activeDeployment.latestStatus.environment ??
+      activeDeployment.deployment.environment ??
+      undefined
+    return {
+      status: 'deployed',
+      environment,
+      url:
+        activeDeployment.latestStatus.environment_url ??
+        activeDeployment.latestStatus.target_url ??
+        activeDeployment.latestStatus.log_url ??
+        undefined,
+      detail:
+        activeDeployment.latestStatus.description ??
+        `Active${environment ? ` ${environment}` : ''} deployment detected`,
+    }
+  }
+
+  if (
+    completedDeployments.some(({ latestStatus }) =>
+      ['queued', 'pending', 'in_progress'].includes(latestStatus?.state ?? '')
+    )
+  ) {
+    return null
+  }
+
+  const failedDeployment = completedDeployments.find(({ latestStatus }) =>
+    ['failure', 'error', 'inactive'].includes(latestStatus?.state ?? '')
+  )
+  if (!failedDeployment?.latestStatus) {
+    return null
+  }
+
+  const environment =
+    failedDeployment.latestStatus.environment ??
+    failedDeployment.deployment.environment ??
+    undefined
+  return {
+    status: 'not-deployed',
+    environment,
+    url:
+      failedDeployment.latestStatus.log_url ??
+      failedDeployment.latestStatus.target_url ??
+      undefined,
+    detail:
+      failedDeployment.latestStatus.description ??
+      `Latest${environment ? ` ${environment}` : ''} deployment is ${failedDeployment.latestStatus.state}`,
+  }
 }
 
 export async function validatePat(token: string): Promise<{
