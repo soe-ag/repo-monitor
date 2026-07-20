@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PACKAGE_UPDATE_MINIMUM_AGE_MS } from './constants'
-import { classifyVersionUpdate, statusForPackageUpdate } from './github'
+import { classifyVersionUpdate, statusForPackageUpdate, summarizeLatestCommitBuild } from './github'
 
 describe('classifyVersionUpdate', () => {
   it('detects patch, minor, major, none, and unknown changes', () => {
@@ -9,6 +9,22 @@ describe('classifyVersionUpdate', () => {
     expect(classifyVersionUpdate('1.2.3', '2.0.0')).toBe('major')
     expect(classifyVersionUpdate('1.2.3', '1.2.3')).toBe('none')
     expect(classifyVersionUpdate('workspace:*', '2.0.0')).toBe('unknown')
+  })
+})
+
+describe('summarizeLatestCommitBuild', () => {
+  it('returns only completed passing or failing results', () => {
+    expect(summarizeLatestCommitBuild([], { state: 'failure' })?.status).toBe('failing')
+    expect(summarizeLatestCommitBuild([], { state: 'success' })?.status).toBe('passing')
+    expect(
+      summarizeLatestCommitBuild([{ status: 'completed', conclusion: 'failure' }])?.status
+    ).toBe('failing')
+  })
+
+  it('keeps the previous result when the current build is running or unavailable', () => {
+    expect(summarizeLatestCommitBuild([], { state: 'pending' })).toBeNull()
+    expect(summarizeLatestCommitBuild([{ status: 'in_progress' }])).toBeNull()
+    expect(summarizeLatestCommitBuild([])).toBeNull()
   })
 })
 

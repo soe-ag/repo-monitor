@@ -13,6 +13,17 @@ type FetchJsonOptions = {
   body?: string
 }
 
+export type LatestCommitBuildStatus = 'passing' | 'failing'
+
+type GitHubCheckRun = {
+  status: string
+  conclusion?: string | null
+}
+
+type GitHubCommitStatus = {
+  state?: string
+}
+
 export class GitHubHttpError extends Error {
   status: number
   rateLimitResetAt: number | null
@@ -48,6 +59,48 @@ export async function fetchGitHubJson<T>(path: string, options: FetchJsonOptions
   }
 
   return (await response.json()) as T
+}
+
+export function summarizeLatestCommitBuild(
+  checkRuns: GitHubCheckRun[],
+  commitStatus?: GitHubCommitStatus
+): { status: LatestCommitBuildStatus; detail: string } | null {
+  if (
+    commitStatus?.state === 'pending' ||
+    checkRuns.some((checkRun) => checkRun.status !== 'completed')
+  ) {
+    return null
+  }
+
+  if (commitStatus?.state === 'failure' || commitStatus?.state === 'error') {
+    return {
+      status: 'failing',
+      detail: `GitHub commit status is ${commitStatus.state}`,
+    }
+  }
+
+  const failedCount = checkRuns.filter(
+    (checkRun) => !['success', 'neutral', 'skipped'].includes(checkRun.conclusion ?? 'unknown')
+  ).length
+  if (failedCount > 0) {
+    return {
+      status: 'failing',
+      detail: `${failedCount} of ${checkRuns.length} GitHub checks failed`,
+    }
+  }
+
+  if (commitStatus?.state === 'success') {
+    return { status: 'passing', detail: 'GitHub commit status passed' }
+  }
+
+  if (checkRuns.length > 0) {
+    return {
+      status: 'passing',
+      detail: `${checkRuns.length} GitHub check${checkRuns.length === 1 ? '' : 's'} passed`,
+    }
+  }
+
+  return null
 }
 
 export async function validatePat(token: string): Promise<{

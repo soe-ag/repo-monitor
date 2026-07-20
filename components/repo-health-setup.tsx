@@ -41,6 +41,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
+type LatestCommitBuildStatus = 'passing' | 'failing'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
 type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json'
 type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
@@ -78,12 +79,18 @@ type RepositoryHealthCard = {
   _creationTime: number
   fullName: string
   htmlUrl: string
+  defaultBranch: string
   primaryLanguage?: string
   hasPackageJson?: boolean
   visibility: 'public' | 'private'
   githubCreatedAt?: number
   githubUpdatedAt?: number
   pushedAt?: number
+  latestCommitSha?: string
+  latestCommitUrl?: string
+  latestCommitBuildStatus?: LatestCommitBuildStatus
+  latestCommitBuildDetail?: string
+  latestCommitBuildCheckedAt?: number
   lastScanAt?: number
   lastScanStatus?: HealthStatus
   lastScanError?: string
@@ -185,9 +192,23 @@ function needsAttention(status: HealthStatus | undefined) {
 }
 
 function hasRequiredChecklistAttention(repository: RepositoryHealthCard) {
-  return repository.checklistFindings.some(
-    (finding) => !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
+  return (
+    repository.latestCommitBuildStatus === 'failing' ||
+    repository.checklistFindings.some(
+      (finding) => !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
+    )
   )
+}
+
+function buildStatusLabel(status: LatestCommitBuildStatus) {
+  return status === 'passing' ? 'Build passed' : 'Build failed'
+}
+
+function BuildStatusIcon({ status }: { status: LatestCommitBuildStatus }) {
+  if (status === 'passing') {
+    return <CheckCircle2 className="size-4 text-emerald-500" aria-hidden />
+  }
+  return <AlertTriangle className="size-4 text-red-500" aria-hidden />
 }
 
 function ChecklistStatusIcon({
@@ -805,8 +826,6 @@ export function RepoHealthSetup() {
         Skip to repositories
       </a>
       <main className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
-
-
         {message ? (
           <div
             className="rounded-xl border border-border/60 bg-muted/30 px-4 py-2 text-sm text-foreground"
@@ -844,7 +863,10 @@ export function RepoHealthSetup() {
                     >
                       {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
                     </Button>
-                    <Badge variant={connectionBadge.variant} className="rounded-full px-3 py-1 text-xs">
+                    <Badge
+                      variant={connectionBadge.variant}
+                      className="rounded-full px-3 py-1 text-xs"
+                    >
                       {connectionBadge.text}
                     </Badge>
                   </div>
@@ -892,15 +914,21 @@ export function RepoHealthSetup() {
                           rel="noreferrer"
                           className="block truncate text-sm font-semibold text-foreground underline-offset-2 hover:underline"
                         >
-                          {connectionState.accountName ?? connectionState.accountLogin ?? 'Unknown account'}
+                          {connectionState.accountName ??
+                            connectionState.accountLogin ??
+                            'Unknown account'}
                         </a>
                       ) : (
                         <p className="truncate text-sm font-semibold text-foreground">
-                          {connectionState.accountName ?? connectionState.accountLogin ?? 'Unknown account'}
+                          {connectionState.accountName ??
+                            connectionState.accountLogin ??
+                            'Unknown account'}
                         </p>
                       )}
                       {connectionState.accountLogin ? (
-                        <p className="text-xs text-muted-foreground">@{connectionState.accountLogin}</p>
+                        <p className="text-xs text-muted-foreground">
+                          @{connectionState.accountLogin}
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -1175,7 +1203,10 @@ export function RepoHealthSetup() {
                 (finding) =>
                   !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
               )
-              const isPerfect = Boolean(repository.lastScanAt) && failedChecklist.length === 0
+              const isPerfect =
+                Boolean(repository.lastScanAt) &&
+                failedChecklist.length === 0 &&
+                repository.latestCommitBuildStatus !== 'failing'
               const stackLogos = findStackLogos(repository)
 
               return (
@@ -1239,6 +1270,30 @@ export function RepoHealthSetup() {
                       </div>
 
                       <div className="grid gap-1 text-xs text-muted-foreground">
+                        {repository.latestCommitBuildStatus ? (
+                          <div
+                            className={`flex items-center gap-1.5 font-medium ${
+                              repository.latestCommitBuildStatus === 'failing'
+                                ? 'text-red-600'
+                                : 'text-emerald-600'
+                            }`}
+                            title={repository.latestCommitBuildDetail}
+                          >
+                            <BuildStatusIcon status={repository.latestCommitBuildStatus} />
+                            {repository.latestCommitUrl ? (
+                              <a
+                                href={repository.latestCommitUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {buildStatusLabel(repository.latestCommitBuildStatus)}
+                              </a>
+                            ) : (
+                              <span>{buildStatusLabel(repository.latestCommitBuildStatus)}</span>
+                            )}
+                          </div>
+                        ) : null}
                         {repository.hasPackageJson === false ? (
                           <p>No package.json found</p>
                         ) : (
@@ -1337,6 +1392,39 @@ export function RepoHealthSetup() {
 
           {detailRepository ? (
             <div className="space-y-4 text-sm">
+              {detailRepository.latestCommitBuildStatus ? (
+                <div>
+                  <h3 className="mb-2 font-semibold">
+                    Last completed {detailRepository.defaultBranch} build
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs">
+                    <BuildStatusIcon status={detailRepository.latestCommitBuildStatus} />
+                    {detailRepository.latestCommitUrl ? (
+                      <a
+                        href={detailRepository.latestCommitUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium underline-offset-2 hover:underline"
+                      >
+                        {buildStatusLabel(detailRepository.latestCommitBuildStatus)}
+                        {detailRepository.latestCommitSha
+                          ? ` (${detailRepository.latestCommitSha.slice(0, 7)})`
+                          : ''}
+                      </a>
+                    ) : (
+                      <span className="font-medium">
+                        {buildStatusLabel(detailRepository.latestCommitBuildStatus)}
+                      </span>
+                    )}
+                    {detailRepository.latestCommitBuildDetail ? (
+                      <span className="text-muted-foreground">
+                        - {detailRepository.latestCommitBuildDetail}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               <div>
                 <h3 className="mb-2 font-semibold">Eligible package updates</h3>
                 {detailRepository.packageFindings.filter((finding) => finding.status === 'warning')

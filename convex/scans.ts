@@ -20,7 +20,9 @@ import {
   classifyVersionUpdate,
   fetchGitHubJson,
   fetchNpmLatestVersion,
+  summarizeLatestCommitBuild,
   statusForPackageUpdate,
+  type LatestCommitBuildStatus,
 } from './github'
 import { resolveGitHubToken } from './tokenSource'
 
@@ -53,6 +55,13 @@ type PackageFinding = {
   latestPublishedAt?: number
   updateType: 'none' | 'patch' | 'minor' | 'major' | 'unknown'
   status: HealthStatus
+}
+
+type LatestCommitBuild = {
+  status: LatestCommitBuildStatus
+  commitSha?: string
+  commitUrl?: string
+  detail: string
 }
 
 const MAX_DEPENDENCIES_TO_SCAN = 300
@@ -360,15 +369,34 @@ export const saveRepositoryScanResult = mutation({
       v.literal('unknown')
     ),
     repositoryError: v.optional(v.string()),
+    latestCommitBuild: v.optional(
+      v.object({
+        status: v.union(v.literal('passing'), v.literal('failing')),
+        commitSha: v.optional(v.string()),
+        commitUrl: v.optional(v.string()),
+        detail: v.string(),
+      })
+    ),
   },
   handler: async (ctx, args) => {
     const now = Date.now()
+    const buildStatusUpdate = args.latestCommitBuild
+      ? {
+          latestCommitSha: args.latestCommitBuild.commitSha,
+          latestCommitUrl: args.latestCommitBuild.commitUrl,
+          latestCommitBuildStatus: args.latestCommitBuild.status,
+          latestCommitBuildDetail: args.latestCommitBuild.detail,
+          latestCommitBuildCheckedAt: now,
+        }
+      : {}
+
     await ctx.db.patch(args.repositoryId, {
       hasPackageJson: args.hasPackageJson,
       lastScanAt: now,
       lastScanRunId: args.scanRunId,
       lastScanStatus: args.repositoryStatus,
       lastScanError: args.repositoryError,
+      ...buildStatusUpdate,
       updatedAt: now,
     })
 
@@ -812,6 +840,7 @@ async function runRepositoryScan(
     scanRunId: Id<'scanRuns'>
   }
 ) {
+  const latestCommitBuild = await fetchLatestCommitBuild(args.connectionToken, args.repository)
   const packageJsonResult = await fetchPackageJson(args.connectionToken, args.repository)
   let dependencyCapDetail: string | null = null
 
@@ -891,7 +920,54 @@ async function runRepositoryScan(
     checklistFindings,
     repositoryStatus,
     repositoryError: packageJsonResult.ok ? undefined : packageJsonResult.error,
+    ...(latestCommitBuild ? { latestCommitBuild } : {}),
   })
+}
+
+async function fetchLatestCommitBuild(
+  token: string,
+  repository: GitHubRepository
+): Promise<LatestCommitBuild | null> {
+  try {
+    const commit = await fetchGitHubJson<{ sha: string; html_url?: string }>(
+      `/repos/${repository.owner.login}/${repository.name}/commits/${encodeURIComponent(
+        repository.default_branch
+      )}`,
+      { token }
+    )
+    const [checkRunsResult, commitStatusResult] = await Promise.allSettled([
+      fetchGitHubJson<{
+        check_runs: Array<{ status: string; conclusion?: string | null }>
+      }>(
+        `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/check-runs?per_page=100`,
+        { token }
+      ),
+      fetchGitHubJson<{ state?: string }>(
+        `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/status`,
+        { token }
+      ),
+    ])
+
+    if (checkRunsResult.status === 'rejected' && commitStatusResult.status === 'rejected') {
+      throw checkRunsResult.reason
+    }
+
+    const summary = summarizeLatestCommitBuild(
+      checkRunsResult.status === 'fulfilled' ? checkRunsResult.value.check_runs : [],
+      commitStatusResult.status === 'fulfilled' ? commitStatusResult.value : undefined
+    )
+    if (!summary) {
+      return null
+    }
+    return {
+      status: summary.status,
+      commitSha: commit.sha,
+      commitUrl: commit.html_url,
+      detail: summary.detail,
+    }
+  } catch {
+    return null
+  }
 }
 
 async function fetchPackageJson(token: string, repository: GitHubRepository) {
