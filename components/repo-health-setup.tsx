@@ -1289,57 +1289,63 @@ export function RepoHealthSetup() {
                       </div>
 
                       <div className="grid gap-1 text-xs text-muted-foreground">
-                        {repository.latestCommitBuildStatus ? (
-                          <div
-                            className={`flex items-center gap-1.5 font-medium ${
-                              repository.latestCommitBuildStatus === 'failing'
-                                ? 'text-red-600'
-                                : 'text-emerald-600'
-                            }`}
-                            title={repository.latestCommitBuildDetail}
-                          >
-                            <BuildStatusIcon status={repository.latestCommitBuildStatus} />
-                            {repository.latestCommitUrl ? (
-                              <a
-                                href={repository.latestCommitUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="underline-offset-2 hover:underline"
+                        {repository.latestCommitBuildStatus || repository.latestDeploymentStatus ? (
+                          <div className="flex min-w-0 items-center gap-1 whitespace-nowrap font-medium">
+                            <Activity
+                              className="size-4 shrink-0 text-muted-foreground"
+                              aria-hidden
+                            />
+                            {repository.latestCommitBuildStatus ? (
+                              <span
+                                className={
+                                  repository.latestCommitBuildStatus === 'failing'
+                                    ? 'text-red-600'
+                                    : 'text-emerald-600'
+                                }
+                                title={repository.latestCommitBuildDetail}
                               >
-                                {buildStatusLabel(repository.latestCommitBuildStatus)}
-                              </a>
-                            ) : (
-                              <span>{buildStatusLabel(repository.latestCommitBuildStatus)}</span>
-                            )}
-                          </div>
-                        ) : null}
-                        {repository.latestDeploymentStatus ? (
-                          <div
-                            className={`flex items-center gap-1.5 font-medium ${
-                              repository.latestDeploymentStatus === 'not-deployed'
-                                ? 'text-red-600'
-                                : 'text-emerald-600'
-                            }`}
-                            title={repository.latestDeploymentDetail}
-                          >
-                            <DeploymentStatusIcon status={repository.latestDeploymentStatus} />
-                            {repository.latestDeploymentUrl ? (
-                              <a
-                                href={repository.latestDeploymentUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="underline-offset-2 hover:underline"
-                              >
-                                {deploymentStatusLabel(repository.latestDeploymentStatus)}
-                              </a>
-                            ) : (
-                              <span>
-                                {deploymentStatusLabel(repository.latestDeploymentStatus)}
+                                {repository.latestCommitUrl ? (
+                                  <a
+                                    href={repository.latestCommitUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline-offset-2 hover:underline"
+                                  >
+                                    {buildStatusLabel(repository.latestCommitBuildStatus)}
+                                  </a>
+                                ) : (
+                                  buildStatusLabel(repository.latestCommitBuildStatus)
+                                )}
                               </span>
-                            )}
-                            {repository.latestDeploymentEnvironment ? (
-                              <span className="font-normal text-muted-foreground">
-                                ({repository.latestDeploymentEnvironment})
+                            ) : null}
+                            {repository.latestCommitBuildStatus &&
+                            repository.latestDeploymentStatus ? (
+                              <span className="text-muted-foreground">/</span>
+                            ) : null}
+                            {repository.latestDeploymentStatus ? (
+                              <span
+                                className={`min-w-0 truncate ${
+                                  repository.latestDeploymentStatus === 'not-deployed'
+                                    ? 'text-red-600'
+                                    : 'text-emerald-600'
+                                }`}
+                                title={repository.latestDeploymentDetail}
+                              >
+                                {repository.latestDeploymentUrl ? (
+                                  <a
+                                    href={repository.latestDeploymentUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline-offset-2 hover:underline"
+                                  >
+                                    {deploymentStatusLabel(repository.latestDeploymentStatus)}
+                                  </a>
+                                ) : (
+                                  deploymentStatusLabel(repository.latestDeploymentStatus)
+                                )}
+                                {repository.latestDeploymentEnvironment
+                                  ? ` (${repository.latestDeploymentEnvironment})`
+                                  : ''}
                               </span>
                             ) : null}
                           </div>
