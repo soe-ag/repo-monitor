@@ -41,7 +41,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
-type LatestCommitBuildStatus = 'passing' | 'failing' | 'pending' | 'not-configured' | 'unknown'
+type LatestCommitBuildStatus = 'passing' | 'failing'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
 type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json'
 type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
@@ -200,32 +200,15 @@ function hasRequiredChecklistAttention(repository: RepositoryHealthCard) {
   )
 }
 
-function buildStatusLabel(status: LatestCommitBuildStatus | undefined) {
-  switch (status) {
-    case 'passing':
-      return 'Build passing'
-    case 'failing':
-      return 'Build failed'
-    case 'pending':
-      return 'Build running'
-    case 'not-configured':
-      return 'No build checks'
-    default:
-      return 'Build not checked'
-  }
+function buildStatusLabel(status: LatestCommitBuildStatus) {
+  return status === 'passing' ? 'Build passed' : 'Build failed'
 }
 
-function BuildStatusIcon({ status }: { status: LatestCommitBuildStatus | undefined }) {
+function BuildStatusIcon({ status }: { status: LatestCommitBuildStatus }) {
   if (status === 'passing') {
     return <CheckCircle2 className="size-4 text-emerald-500" aria-hidden />
   }
-  if (status === 'failing') {
-    return <AlertTriangle className="size-4 text-red-500" aria-hidden />
-  }
-  if (status === 'pending') {
-    return <Activity className="size-4 text-amber-500" aria-hidden />
-  }
-  return <CircleHelp className="size-4 text-muted-foreground" aria-hidden />
+  return <AlertTriangle className="size-4 text-red-500" aria-hidden />
 }
 
 function ChecklistStatusIcon({
@@ -1287,30 +1270,30 @@ export function RepoHealthSetup() {
                       </div>
 
                       <div className="grid gap-1 text-xs text-muted-foreground">
-                        <div
-                          className={`flex items-center gap-1.5 font-medium ${
-                            repository.latestCommitBuildStatus === 'failing'
-                              ? 'text-red-600'
-                              : repository.latestCommitBuildStatus === 'passing'
-                                ? 'text-emerald-600'
-                                : 'text-muted-foreground'
-                          }`}
-                          title={repository.latestCommitBuildDetail}
-                        >
-                          <BuildStatusIcon status={repository.latestCommitBuildStatus} />
-                          {repository.latestCommitUrl ? (
-                            <a
-                              href={repository.latestCommitUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="underline-offset-2 hover:underline"
-                            >
-                              {buildStatusLabel(repository.latestCommitBuildStatus)}
-                            </a>
-                          ) : (
-                            <span>{buildStatusLabel(repository.latestCommitBuildStatus)}</span>
-                          )}
-                        </div>
+                        {repository.latestCommitBuildStatus ? (
+                          <div
+                            className={`flex items-center gap-1.5 font-medium ${
+                              repository.latestCommitBuildStatus === 'failing'
+                                ? 'text-red-600'
+                                : 'text-emerald-600'
+                            }`}
+                            title={repository.latestCommitBuildDetail}
+                          >
+                            <BuildStatusIcon status={repository.latestCommitBuildStatus} />
+                            {repository.latestCommitUrl ? (
+                              <a
+                                href={repository.latestCommitUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="underline-offset-2 hover:underline"
+                              >
+                                {buildStatusLabel(repository.latestCommitBuildStatus)}
+                              </a>
+                            ) : (
+                              <span>{buildStatusLabel(repository.latestCommitBuildStatus)}</span>
+                            )}
+                          </div>
+                        ) : null}
                         {repository.hasPackageJson === false ? (
                           <p>No package.json found</p>
                         ) : (
@@ -1409,36 +1392,38 @@ export function RepoHealthSetup() {
 
           {detailRepository ? (
             <div className="space-y-4 text-sm">
-              <div>
-                <h3 className="mb-2 font-semibold">
-                  Latest {detailRepository.defaultBranch} build
-                </h3>
-                <div className="flex items-center gap-2 text-xs">
-                  <BuildStatusIcon status={detailRepository.latestCommitBuildStatus} />
-                  {detailRepository.latestCommitUrl ? (
-                    <a
-                      href={detailRepository.latestCommitUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium underline-offset-2 hover:underline"
-                    >
-                      {buildStatusLabel(detailRepository.latestCommitBuildStatus)}
-                      {detailRepository.latestCommitSha
-                        ? ` (${detailRepository.latestCommitSha.slice(0, 7)})`
-                        : ''}
-                    </a>
-                  ) : (
-                    <span className="font-medium">
-                      {buildStatusLabel(detailRepository.latestCommitBuildStatus)}
-                    </span>
-                  )}
-                  {detailRepository.latestCommitBuildDetail ? (
-                    <span className="text-muted-foreground">
-                      - {detailRepository.latestCommitBuildDetail}
-                    </span>
-                  ) : null}
+              {detailRepository.latestCommitBuildStatus ? (
+                <div>
+                  <h3 className="mb-2 font-semibold">
+                    Last completed {detailRepository.defaultBranch} build
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs">
+                    <BuildStatusIcon status={detailRepository.latestCommitBuildStatus} />
+                    {detailRepository.latestCommitUrl ? (
+                      <a
+                        href={detailRepository.latestCommitUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium underline-offset-2 hover:underline"
+                      >
+                        {buildStatusLabel(detailRepository.latestCommitBuildStatus)}
+                        {detailRepository.latestCommitSha
+                          ? ` (${detailRepository.latestCommitSha.slice(0, 7)})`
+                          : ''}
+                      </a>
+                    ) : (
+                      <span className="font-medium">
+                        {buildStatusLabel(detailRepository.latestCommitBuildStatus)}
+                      </span>
+                    )}
+                    {detailRepository.latestCommitBuildDetail ? (
+                      <span className="text-muted-foreground">
+                        - {detailRepository.latestCommitBuildDetail}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               <div>
                 <h3 className="mb-2 font-semibold">Eligible package updates</h3>

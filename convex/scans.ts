@@ -371,13 +371,7 @@ export const saveRepositoryScanResult = mutation({
     repositoryError: v.optional(v.string()),
     latestCommitBuild: v.optional(
       v.object({
-        status: v.union(
-          v.literal('passing'),
-          v.literal('failing'),
-          v.literal('pending'),
-          v.literal('not-configured'),
-          v.literal('unknown')
-        ),
+        status: v.union(v.literal('passing'), v.literal('failing')),
         commitSha: v.optional(v.string()),
         commitUrl: v.optional(v.string()),
         detail: v.string(),
@@ -926,14 +920,14 @@ async function runRepositoryScan(
     checklistFindings,
     repositoryStatus,
     repositoryError: packageJsonResult.ok ? undefined : packageJsonResult.error,
-    latestCommitBuild,
+    ...(latestCommitBuild ? { latestCommitBuild } : {}),
   })
 }
 
 async function fetchLatestCommitBuild(
   token: string,
   repository: GitHubRepository
-): Promise<LatestCommitBuild> {
+): Promise<LatestCommitBuild | null> {
   try {
     const commit = await fetchGitHubJson<{ sha: string; html_url?: string }>(
       `/repos/${repository.owner.login}/${repository.name}/commits/${encodeURIComponent(
@@ -962,17 +956,17 @@ async function fetchLatestCommitBuild(
       checkRunsResult.status === 'fulfilled' ? checkRunsResult.value.check_runs : [],
       commitStatusResult.status === 'fulfilled' ? commitStatusResult.value : undefined
     )
+    if (!summary) {
+      return null
+    }
     return {
       status: summary.status,
       commitSha: commit.sha,
       commitUrl: commit.html_url,
       detail: summary.detail,
     }
-  } catch (error) {
-    return {
-      status: 'unknown',
-      detail: `Could not load GitHub build checks: ${extractMessage(error)}`,
-    }
+  } catch {
+    return null
   }
 }
 

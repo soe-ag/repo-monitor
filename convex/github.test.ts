@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PACKAGE_UPDATE_MINIMUM_AGE_MS } from './constants'
-import {
-  classifyVersionUpdate,
-  statusForPackageUpdate,
-  summarizeCheckRuns,
-  summarizeLatestCommitBuild,
-} from './github'
+import { classifyVersionUpdate, statusForPackageUpdate, summarizeLatestCommitBuild } from './github'
 
 describe('classifyVersionUpdate', () => {
   it('detects patch, minor, major, none, and unknown changes', () => {
@@ -17,24 +12,19 @@ describe('classifyVersionUpdate', () => {
   })
 })
 
-describe('summarizeCheckRuns', () => {
-  it('reports passing, failing, pending, and absent checks', () => {
-    expect(summarizeCheckRuns([]).status).toBe('not-configured')
-    expect(summarizeCheckRuns([{ status: 'in_progress' }]).status).toBe('pending')
-    expect(summarizeCheckRuns([{ status: 'completed', conclusion: 'failure' }]).status).toBe(
-      'failing'
-    )
-    expect(summarizeCheckRuns([{ status: 'completed', conclusion: 'success' }]).status).toBe(
-      'passing'
-    )
-  })
-})
-
 describe('summarizeLatestCommitBuild', () => {
-  it('uses the legacy GitHub commit status when check runs are absent', () => {
-    expect(summarizeLatestCommitBuild([], { state: 'failure' }).status).toBe('failing')
-    expect(summarizeLatestCommitBuild([], { state: 'success' }).status).toBe('passing')
-    expect(summarizeLatestCommitBuild([], { state: 'pending' }).status).toBe('pending')
+  it('returns only completed passing or failing results', () => {
+    expect(summarizeLatestCommitBuild([], { state: 'failure' })?.status).toBe('failing')
+    expect(summarizeLatestCommitBuild([], { state: 'success' })?.status).toBe('passing')
+    expect(
+      summarizeLatestCommitBuild([{ status: 'completed', conclusion: 'failure' }])?.status
+    ).toBe('failing')
+  })
+
+  it('keeps the previous result when the current build is running or unavailable', () => {
+    expect(summarizeLatestCommitBuild([], { state: 'pending' })).toBeNull()
+    expect(summarizeLatestCommitBuild([{ status: 'in_progress' }])).toBeNull()
+    expect(summarizeLatestCommitBuild([])).toBeNull()
   })
 })
 

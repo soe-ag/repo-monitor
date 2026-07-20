@@ -38,15 +38,7 @@ export default defineSchema({
     pushedAt: v.optional(v.number()),
     latestCommitSha: v.optional(v.string()),
     latestCommitUrl: v.optional(v.string()),
-    latestCommitBuildStatus: v.optional(
-      v.union(
-        v.literal('passing'),
-        v.literal('failing'),
-        v.literal('pending'),
-        v.literal('not-configured'),
-        v.literal('unknown')
-      )
-    ),
+    latestCommitBuildStatus: v.optional(v.union(v.literal('passing'), v.literal('failing'))),
     latestCommitBuildDetail: v.optional(v.string()),
     latestCommitBuildCheckedAt: v.optional(v.number()),
     hasPackageJson: v.optional(v.boolean()),

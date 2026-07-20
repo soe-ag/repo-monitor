@@ -13,12 +13,7 @@ type FetchJsonOptions = {
   body?: string
 }
 
-export type LatestCommitBuildStatus =
-  | 'passing'
-  | 'failing'
-  | 'pending'
-  | 'not-configured'
-  | 'unknown'
+export type LatestCommitBuildStatus = 'passing' | 'failing'
 
 type GitHubCheckRun = {
   status: string
@@ -66,19 +61,21 @@ export async function fetchGitHubJson<T>(path: string, options: FetchJsonOptions
   return (await response.json()) as T
 }
 
-export function summarizeCheckRuns(checkRuns: GitHubCheckRun[]): {
-  status: LatestCommitBuildStatus
-  detail: string
-} {
-  if (checkRuns.length === 0) {
-    return { status: 'not-configured', detail: 'No GitHub checks found for this commit' }
+export function summarizeLatestCommitBuild(
+  checkRuns: GitHubCheckRun[],
+  commitStatus?: GitHubCommitStatus
+): { status: LatestCommitBuildStatus; detail: string } | null {
+  if (
+    commitStatus?.state === 'pending' ||
+    checkRuns.some((checkRun) => checkRun.status !== 'completed')
+  ) {
+    return null
   }
 
-  const pendingCount = checkRuns.filter((checkRun) => checkRun.status !== 'completed').length
-  if (pendingCount > 0) {
+  if (commitStatus?.state === 'failure' || commitStatus?.state === 'error') {
     return {
-      status: 'pending',
-      detail: `${pendingCount} GitHub check${pendingCount === 1 ? ' is' : 's are'} still running`,
+      status: 'failing',
+      detail: `GitHub commit status is ${commitStatus.state}`,
     }
   }
 
@@ -92,33 +89,18 @@ export function summarizeCheckRuns(checkRuns: GitHubCheckRun[]): {
     }
   }
 
-  return {
-    status: 'passing',
-    detail: `${checkRuns.length} GitHub check${checkRuns.length === 1 ? '' : 's'} passed`,
-  }
-}
-
-export function summarizeLatestCommitBuild(
-  checkRuns: GitHubCheckRun[],
-  commitStatus?: GitHubCommitStatus
-): { status: LatestCommitBuildStatus; detail: string } {
-  if (commitStatus?.state === 'failure' || commitStatus?.state === 'error') {
-    return {
-      status: 'failing',
-      detail: `GitHub commit status is ${commitStatus.state}`,
-    }
-  }
-
-  if (commitStatus?.state === 'pending') {
-    return { status: 'pending', detail: 'GitHub commit status is still running' }
-  }
-
-  const checkRunSummary = summarizeCheckRuns(checkRuns)
-  if (checkRunSummary.status === 'not-configured' && commitStatus?.state === 'success') {
+  if (commitStatus?.state === 'success') {
     return { status: 'passing', detail: 'GitHub commit status passed' }
   }
 
-  return checkRunSummary
+  if (checkRuns.length > 0) {
+    return {
+      status: 'passing',
+      detail: `${checkRuns.length} GitHub check${checkRuns.length === 1 ? '' : 's'} passed`,
+    }
+  }
+
+  return null
 }
 
 export async function validatePat(token: string): Promise<{
