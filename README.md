@@ -1,53 +1,105 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Repo Monitor
 
-## Getting Started
+Repo Monitor is a Next.js and Convex dashboard for reviewing the health of GitHub repositories in one place. Connect a GitHub personal access token, sync accessible repositories, and scan up to 10 repositories at a time.
 
-First, install dependencies and run the development servers:
+## Features
+
+- Sync public and private repositories available to the connected GitHub account.
+- Show the last completed build result as `Build passed` or `Build failed`.
+- Detect active GitHub-integrated deployments and show `Deployed` or `Not deployed`, including the environment and deployment link when available.
+- Display build and deployment information in one compact row, for example:
+
+  ```text
+  Build passed / Deployed (Production)
+  ```
+
+- Check dependencies from `package.json` against the npm registry.
+- Evaluate repository health checks for tests, GitHub Actions workflows, README presence and freshness, Dependabot configuration, and security alerts.
+- Filter repositories that need attention and inspect detailed findings.
+- Run single-repository, selected-repository, and weekly scheduled scans.
+- Preserve partial scan results when one repository or external API request fails.
+
+## Build and deployment status
+
+Build status comes from GitHub check runs and commit statuses for the latest commit on the repository's default branch.
+
+- Only completed results are displayed.
+- If the newest build is still running, the previous completed pass/fail result remains visible.
+- If GitHub does not expose build information, no build label is shown.
+
+Deployment status comes from GitHub deployment records and their latest statuses.
+
+- `Deployed` means GitHub reports at least one active successful, non-transient deployment.
+- `Not deployed` is shown only when GitHub provides enough deployment history to determine that no active deployment exists.
+- A failed newer deployment does not hide an older successful deployment that remains active.
+- If the repository is deployed outside GitHub's deployment integrations, or the token cannot read deployment data, no deployment label is shown.
+
+## Getting started
+
+### Requirements
+
+- Node.js compatible with the versions declared by the installed packages
+- npm
+- A Convex project
+- A GitHub personal access token
+
+### Install and run
 
 ```bash
 npm install
 npm run dev
 ```
 
-Set environment variables before running:
+Open [http://localhost:3000](http://localhost:3000), enter a GitHub PAT, sync repositories, select up to 10 repositories, and start a scan.
+
+### Environment variables
+
+Create `.env.local` with your Convex deployment URL:
 
 ```bash
 NEXT_PUBLIC_CONVEX_URL=https://<your-deployment>.convex.cloud
-# Optional for server-side API route calls:
+```
+
+The server-side API routes can optionally use a Convex admin key:
+
+```bash
 CONVEX_ADMIN_KEY=<your-convex-admin-key>
 ```
 
-## Repo health monitor (Phase 1 + 2)
+Do not commit `.env.local` or your GitHub token.
 
-Implemented foundations:
+## GitHub token access
 
-- GitHub PAT connection flow with validation and connection status (`connected`, `invalid`, `rate-limited`)
-- Convex schema for connections, repositories, package findings, checklist findings, and scan runs
-- Scanner actions for:
-  - syncing accessible private/public repositories
-  - parsing `package.json` dependencies
-  - checking newer package versions
-  - checklist evaluation (tests, CI workflow, README, README freshness, Dependabot)
-- Partial-failure scan behavior with per-repo error recording
-- Weekly scheduled scan via Convex cron and manual scan triggers via UI/API
+The token must be able to read every repository you want to monitor. Private repositories require repository read access. Build and deployment indicators also require access to GitHub checks, commit statuses, and deployments.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If a token lacks access to optional data, Repo Monitor leaves the corresponding indicator blank instead of treating the repository as failed or undeployed.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Available commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev        # Start Next.js and Convex development servers
+npm run build      # Create a production Next.js build
+npm run lint       # Run ESLint
+npm run typecheck  # Run TypeScript without emitting files
+npm test           # Run the Vitest suite once
+npm run test:watch # Run Vitest in watch mode
+```
 
-## Learn More
+## Architecture
 
-To learn more about Next.js, take a look at the following resources:
+- `app/` contains the Next.js App Router pages and API routes.
+- `components/` contains the interactive dashboard UI.
+- `convex/` contains the schema, GitHub scanning actions, persistence functions, tests, and weekly cron configuration.
+- `app/manual/` contains the in-app usage guide.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Scan results are stored in Convex and streamed back to the dashboard. GitHub and npm requests run on the backend so access tokens are not exposed to the browser.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deployment
 
-## Deploy on Vercel
+Build the frontend with:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deploy the Convex backend for the target environment and configure `NEXT_PUBLIC_CONVEX_URL` in the frontend host. The Next.js application can be hosted on Vercel or another platform that supports Next.js 16.
