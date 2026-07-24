@@ -94,6 +94,15 @@ export const listRepositories = query({
       return []
     }
 
+    if (connection.repositoriesRefreshedAt) {
+      return await ctx.db
+        .query('repositories')
+        .withIndex('by_connection_and_last_seen_at', (q) =>
+          q.eq('connectionId', connection._id).eq('lastSeenAt', connection.repositoriesRefreshedAt)
+        )
+        .collect()
+    }
+
     return await ctx.db
       .query('repositories')
       .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
@@ -180,10 +189,19 @@ export const listRepositoryDashboard = query({
       return []
     }
 
-    const repositories = await ctx.db
-      .query('repositories')
-      .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
-      .collect()
+    const repositories = connection.repositoriesRefreshedAt
+      ? await ctx.db
+          .query('repositories')
+          .withIndex('by_connection_and_last_seen_at', (q) =>
+            q
+              .eq('connectionId', connection._id)
+              .eq('lastSeenAt', connection.repositoriesRefreshedAt)
+          )
+          .collect()
+      : await ctx.db
+          .query('repositories')
+          .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
+          .collect()
 
     const dashboard = []
     for (const repository of repositories) {
@@ -261,6 +279,7 @@ export const finalizeScanRun = mutation({
 export const upsertRepositories = mutation({
   args: {
     connectionId: v.id('githubConnections'),
+    syncedAt: v.number(),
     repositories: v.array(
       v.object({
         githubId: v.number(),
@@ -302,6 +321,7 @@ export const upsertRepositories = mutation({
           githubCreatedAt: repo.githubCreatedAt,
           githubUpdatedAt: repo.githubUpdatedAt,
           pushedAt: repo.pushedAt,
+          lastSeenAt: args.syncedAt,
           updatedAt: now,
         })
         idsByFullName[repo.fullName] = existing._id
@@ -319,12 +339,18 @@ export const upsertRepositories = mutation({
           githubCreatedAt: repo.githubCreatedAt,
           githubUpdatedAt: repo.githubUpdatedAt,
           pushedAt: repo.pushedAt,
+          lastSeenAt: args.syncedAt,
           createdAt: now,
           updatedAt: now,
         })
         idsByFullName[repo.fullName] = id
       }
     }
+
+    await ctx.db.patch(args.connectionId, {
+      repositoriesRefreshedAt: args.syncedAt,
+      updatedAt: now,
+    })
 
     return idsByFullName
   },
@@ -671,6 +697,43 @@ export const scanSingleRepository = action({
   },
 })
 
+export const refreshRepositories = action({
+  args: {
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ ok: true; repositoryCount: number } | { ok: false; message: string }> => {
+    const connection = await ctx.runQuery(api.githubConnections.getConnectionForScanner, {
+      connectionKey: args.connectionKey ?? DEFAULT_CONNECTION_KEY,
+    })
+    if (!connection) {
+      return { ok: false, message: 'Connection not found' }
+    }
+    if (connection.status !== 'connected') {
+      return { ok: false, message: 'Connection not healthy' }
+    }
+
+    const connectionToken = resolveGitHubToken(connection)
+    if (!connectionToken) {
+      return { ok: false, message: 'OAuth token source is not implemented yet' }
+    }
+
+    try {
+      const repositories = await fetchAllRepositories(connectionToken)
+      await ctx.runMutation(api.scans.upsertRepositories, {
+        connectionId: connection._id,
+        syncedAt: Date.now(),
+        repositories: repositories.map(toRepositoryUpsertInput),
+      })
+      return { ok: true, repositoryCount: repositories.length }
+    } catch (error) {
+      return { ok: false, message: extractMessage(error) }
+    }
+  },
+})
+
 export const scanAllRepositories = action({
   args: {
     connectionKey: v.optional(v.string()),
@@ -755,22 +818,8 @@ export const scanAllRepositories = action({
         reposFromGitHub = await fetchAllRepositories(connectionToken)
         repoMap = await ctx.runMutation(api.scans.upsertRepositories, {
           connectionId: connection._id,
-          repositories: reposFromGitHub.map((repo) => {
-            const visibility: 'public' | 'private' = repo.private ? 'private' : 'public'
-            return {
-              githubId: repo.id,
-              owner: repo.owner.login,
-              name: repo.name,
-              fullName: repo.full_name,
-              primaryLanguage: repo.language ?? undefined,
-              visibility,
-              defaultBranch: repo.default_branch,
-              htmlUrl: repo.html_url,
-              githubCreatedAt: repo.created_at ? new Date(repo.created_at).getTime() : undefined,
-              githubUpdatedAt: repo.updated_at ? new Date(repo.updated_at).getTime() : undefined,
-              pushedAt: repo.pushed_at ? new Date(repo.pushed_at).getTime() : undefined,
-            }
-          }),
+          syncedAt: Date.now(),
+          repositories: reposFromGitHub.map(toRepositoryUpsertInput),
         })
       }
 
@@ -858,6 +907,23 @@ async function fetchAllRepositories(token: string): Promise<GitHubRepository[]> 
   }
 
   return allRepositories
+}
+
+function toRepositoryUpsertInput(repo: GitHubRepository) {
+  const visibility: 'public' | 'private' = repo.private ? 'private' : 'public'
+  return {
+    githubId: repo.id,
+    owner: repo.owner.login,
+    name: repo.name,
+    fullName: repo.full_name,
+    primaryLanguage: repo.language ?? undefined,
+    visibility,
+    defaultBranch: repo.default_branch,
+    htmlUrl: repo.html_url,
+    githubCreatedAt: repo.created_at ? new Date(repo.created_at).getTime() : undefined,
+    githubUpdatedAt: repo.updated_at ? new Date(repo.updated_at).getTime() : undefined,
+    pushedAt: repo.pushed_at ? new Date(repo.pushed_at).getTime() : undefined,
+  }
 }
 
 async function runRepositoryScan(

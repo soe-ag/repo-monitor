@@ -292,6 +292,7 @@ export function RepoHealthSetup() {
     deletingConnection: false,
     loadingConnection: true,
     loadingRepositories: true,
+    refreshingRepositories: false,
     scanningAll: false,
     scanningSingle: '',
   })
@@ -503,6 +504,39 @@ export function RepoHealthSetup() {
       })
     }
     setLoadingState((prev) => ({ ...prev, loadingRepositories: false }))
+  }
+
+  async function refreshRepositories() {
+    setLoadingState((prev) => ({ ...prev, refreshingRepositories: true }))
+    setMessage(null)
+
+    try {
+      const response = await fetch('/api/repositories', { method: 'PUT' })
+      const payload = (await response.json()) as
+        | { ok: true; repositoryCount: number }
+        | { ok: false; message?: string }
+        | { error: string }
+
+      if ('error' in payload || !payload.ok) {
+        setMessage(
+          'error' in payload
+            ? payload.error
+            : (payload.message ?? 'Failed to refresh repository list')
+        )
+        return
+      }
+
+      await loadRepositories()
+      setMessage(
+        `Repository list refreshed. ${payload.repositoryCount} ${
+          payload.repositoryCount === 1 ? 'repository' : 'repositories'
+        } found.`
+      )
+    } catch {
+      setMessage('Failed to refresh repository list')
+    } finally {
+      setLoadingState((prev) => ({ ...prev, refreshingRepositories: false }))
+    }
   }
 
   async function pollQueuedScans(targetRepositoryId?: string, repositoryIds?: string[]) {
@@ -1048,6 +1082,19 @@ export function RepoHealthSetup() {
                     disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
                   >
                     {loadingState.scanningAll ? 'Queueing...' : 'Scan selected'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
+                    onClick={() => void refreshRepositories()}
+                    disabled={!connectionState?.connected || loadingState.refreshingRepositories}
+                  >
+                    <ReloadIcon
+                      className={loadingState.refreshingRepositories ? 'animate-spin' : undefined}
+                    />
+                    {loadingState.refreshingRepositories ? 'Refreshing...' : 'Refresh repositories'}
                   </Button>
                   <Button
                     type="button"

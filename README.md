@@ -5,6 +5,7 @@ Repo Monitor is a Next.js and Convex dashboard for reviewing the health of GitHu
 ## Features
 
 - Sync public and private repositories available to the connected GitHub account.
+- Refresh the stored repository list from GitHub on demand without reconnecting the token.
 - Show the last completed build result as `Build passed` or `Build failed`.
 - Detect active GitHub-integrated deployments and show `Deployed` or `Not deployed`, including the environment and deployment link when available.
 - Display build and deployment information in one compact row, for example:

@@ -19,6 +19,7 @@ export default defineSchema({
     accountName: v.optional(v.string()),
     accountAvatarUrl: v.optional(v.string()),
     accountHtmlUrl: v.optional(v.string()),
+    repositoriesRefreshedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_connection_key', ['connectionKey']),
@@ -46,6 +47,7 @@ export default defineSchema({
     latestDeploymentUrl: v.optional(v.string()),
     latestDeploymentDetail: v.optional(v.string()),
     latestDeploymentCheckedAt: v.optional(v.number()),
+    lastSeenAt: v.optional(v.number()),
     hasPackageJson: v.optional(v.boolean()),
     lastScanAt: v.optional(v.number()),
     lastScanRunId: v.optional(v.id('scanRuns')),
@@ -64,6 +66,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index('by_connection', ['connectionId'])
+    .index('by_connection_and_last_seen_at', ['connectionId', 'lastSeenAt'])
     .index('by_connection_full_name', ['connectionId', 'fullName']),
 
   packageFindings: defineTable({

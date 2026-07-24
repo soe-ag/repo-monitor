@@ -205,6 +205,75 @@ describe('RepoHealthSetup', () => {
     expect(body.repositoryIds).toHaveLength(10)
   })
 
+  it('refreshes the repository list from GitHub on demand', async () => {
+    let repositoryLoads = 0
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url.startsWith('https://api.svgl.app')) {
+        return mockJsonResponse([])
+      }
+
+      if (url.endsWith('/api/github-connection')) {
+        return mockJsonResponse({
+          status: 'connected',
+          connected: true,
+          packagePolicy: 'any-newer',
+          accountLogin: 'acme',
+        })
+      }
+
+      if (url.endsWith('/api/repositories') && init?.method === 'PUT') {
+        return mockJsonResponse({ ok: true, repositoryCount: 2 })
+      }
+
+      if (url.endsWith('/api/scans') && !init?.method) {
+        repositoryLoads += 1
+        const repositories = [
+          {
+            _id: 'repo-1',
+            fullName: 'acme/existing-repo',
+            visibility: 'private' as const,
+            githubCreatedAt: 1735689600000,
+            githubUpdatedAt: 1767225600000,
+            packageFindings: [],
+            checklistFindings: [],
+          },
+        ]
+        if (repositoryLoads > 1) {
+          repositories.push({
+            _id: 'repo-2',
+            fullName: 'acme/new-repo',
+            visibility: 'private',
+            githubCreatedAt: 1735689600001,
+            githubUpdatedAt: 1767225600001,
+            packageFindings: [],
+            checklistFindings: [],
+          })
+        }
+        return mockJsonResponse(repositories)
+      }
+
+      return mockJsonResponse({ error: `Unhandled endpoint ${url}` })
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<RepoHealthSetup />)
+    expect(await screen.findByText('existing-repo')).toBeInTheDocument()
+    expect(screen.queryByText('new-repo')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh repositories' }))
+
+    expect(await screen.findByText('new-repo')).toBeInTheDocument()
+    expect(screen.getByText('Repository list refreshed. 2 repositories found.')).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => String(url).endsWith('/api/repositories') && init?.method === 'PUT'
+      )
+    ).toBe(true)
+  })
+
   it('clicking a repository scan button triggers single scan only', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
