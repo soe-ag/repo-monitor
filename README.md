@@ -79,12 +79,26 @@ If a token lacks access to optional data, Repo Monitor leaves the corresponding 
 
 ```bash
 npm run dev        # Start Next.js and Convex development servers
+npm run mcp        # Start the local read-only MCP server over stdio
 npm run build      # Create a production Next.js build
 npm run lint       # Run ESLint
 npm run typecheck  # Run TypeScript without emitting files
 npm test           # Run the Vitest suite once
 npm run test:watch # Run Vitest in watch mode
 ```
+
+## Local MCP server
+
+Repo Monitor provides a read-only MCP server over stdio.
+It exposes four tools: repository listing, health lookup, attention items,
+and connection status. It reads Convex data and never returns credentials.
+
+```bash
+NEXT_PUBLIC_CONVEX_URL=https://<your-deployment>.convex.cloud npm run mcp
+```
+
+Use `MCP_CONNECTION_KEY` to override the default connection and launch
+`npx @modelcontextprotocol/inspector npm run mcp` for interactive testing.
 
 ## Architecture
 
