@@ -170,6 +170,11 @@ export default function ManualPage() {
             <strong className="text-foreground">Filter: Needs attention</strong> — shows only repos
             with at least one warning, missing, stale, or error finding.
           </li>
+          <li>
+            <strong className="text-foreground">Filter: npm or pnpm</strong> shows only
+            repositories using the selected package manager. Package managers are detected during
+            repository scans.
+          </li>
         </ul>
       </section>
 

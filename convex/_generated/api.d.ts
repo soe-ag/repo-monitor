@@ -13,6 +13,7 @@ import type * as constants from "../constants.js";
 import type * as crons from "../crons.js";
 import type * as github from "../github.js";
 import type * as githubConnections from "../githubConnections.js";
+import type * as packageManager from "../packageManager.js";
 import type * as scans from "../scans.js";
 import type * as tokenSource from "../tokenSource.js";
 
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   github: typeof github;
   githubConnections: typeof githubConnections;
+  packageManager: typeof packageManager;
   scans: typeof scans;
   tokenSource: typeof tokenSource;
 }>;

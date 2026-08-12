@@ -44,7 +44,8 @@ type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
 type LatestCommitBuildStatus = 'passing' | 'failing'
 type LatestDeploymentStatus = 'deployed' | 'not-deployed'
 type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
-type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json'
+type PackageManager = 'npm' | 'pnpm'
+type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json' | PackageManager
 type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
 
 type ConnectionState = {
@@ -83,6 +84,7 @@ type RepositoryHealthCard = {
   defaultBranch: string
   primaryLanguage?: string
   hasPackageJson?: boolean
+  packageManager?: PackageManager
   visibility: 'public' | 'private'
   githubCreatedAt?: number
   githubUpdatedAt?: number
@@ -195,6 +197,16 @@ const stackAlias: Record<string, string> = {
 
 function needsAttention(status: HealthStatus | undefined) {
   return status === 'warning' || status === 'missing' || status === 'stale' || status === 'error'
+}
+
+function packageManagerBadgeClass(packageManager: PackageManager | undefined) {
+  if (packageManager === 'npm') {
+    return 'border-orange-200 bg-orange-100'
+  }
+  if (packageManager === 'pnpm') {
+    return 'border-sky-200 bg-sky-100'
+  }
+  return undefined
 }
 
 function hasRequiredChecklistAttention(repository: RepositoryHealthCard) {
@@ -331,6 +343,9 @@ export function RepoHealthSetup() {
     if (filter === 'has-package-json') {
       return repositoriesWithinYear.filter((repository) => repository.hasPackageJson === true)
     }
+    if (filter === 'npm' || filter === 'pnpm') {
+      return repositoriesWithinYear.filter((repository) => repository.packageManager === filter)
+    }
     return repositoriesWithinYear
   }, [filter, minimumYear, repositories])
 
@@ -367,7 +382,9 @@ export function RepoHealthSetup() {
     const hasPackageJson = repositories.filter(
       (repository) => repository.hasPackageJson === true
     ).length
-    return { all, needs, hasPackageJson }
+    const npm = repositories.filter((repository) => repository.packageManager === 'npm').length
+    const pnpm = repositories.filter((repository) => repository.packageManager === 'pnpm').length
+    return { all, needs, hasPackageJson, npm, pnpm }
   }, [repositories])
 
   const checklistStats = useMemo(() => {
@@ -1170,6 +1187,22 @@ export function RepoHealthSetup() {
                 <Button
                   size="sm"
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
+                  variant={filter === 'npm' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('npm')}
+                >
+                  npm ({filterCounts.npm})
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
+                  variant={filter === 'pnpm' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('pnpm')}
+                >
+                  pnpm ({filterCounts.pnpm})
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'needs-attention' ? 'default' : 'ghost'}
                   onClick={() => setFilter('needs-attention')}
                 >
@@ -1310,8 +1343,19 @@ export function RepoHealthSetup() {
                         </a>
                       </Button>
                     </CardTitle>
-                    <CardDescription className="flex items-center gap-2">
+                    <CardDescription className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{repository.visibility}</Badge>
+                      <Badge
+                        variant="outline"
+                        className={packageManagerBadgeClass(repository.packageManager)}
+                        title={
+                          repository.packageManager
+                            ? `Package manager: ${repository.packageManager}`
+                            : 'Package manager not detected; scan this repository to detect it'
+                        }
+                      >
+                        {repository.packageManager ?? 'unknown'}
+                      </Badge>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex h-full flex-col justify-between gap-4">

@@ -41,6 +41,7 @@ describe('RepoHealthSetup', () => {
               githubUpdatedAt: 1767225600000,
               lastScanAt: 1767225600000,
               lastScanStatus: 'warning',
+              packageManager: 'pnpm',
               packageFindings: [
                 {
                   _id: 'pkg-1',
@@ -76,6 +77,7 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
 
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
+    expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100')
     expect(screen.getByText(/Eligible updates:/)).toBeInTheDocument()
     expect(
       screen.getByText((_, element) => element?.textContent === 'Checklist: 1 passed / 0 failed')
@@ -89,6 +91,64 @@ describe('RepoHealthSetup', () => {
     ).toBeInTheDocument()
     expect(screen.getByText(/react/)).toBeInTheDocument()
     expect(screen.getByText(/Dependabot config file missing/)).toBeInTheDocument()
+  })
+
+  it('filters repository cards by package manager', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.startsWith('https://api.svgl.app')) {
+          return mockJsonResponse([])
+        }
+        if (url.endsWith('/api/github-connection')) {
+          return mockJsonResponse({
+            status: 'connected',
+            connected: true,
+            packagePolicy: 'any-newer',
+            accountLogin: 'acme',
+          })
+        }
+        if (url.endsWith('/api/scans')) {
+          return mockJsonResponse([
+            {
+              _id: 'repo-npm',
+              fullName: 'acme/npm-repo',
+              visibility: 'public',
+              packageManager: 'npm',
+              githubUpdatedAt: 1767225600000,
+              packageFindings: [],
+              checklistFindings: [],
+            },
+            {
+              _id: 'repo-pnpm',
+              fullName: 'acme/pnpm-repo',
+              visibility: 'private',
+              packageManager: 'pnpm',
+              githubUpdatedAt: 1767225600000,
+              packageFindings: [],
+              checklistFindings: [],
+            },
+          ])
+        }
+        return mockJsonResponse({ error: `Unhandled endpoint ${url}` })
+      })
+    )
+
+    render(<RepoHealthSetup />)
+
+    expect(await screen.findByText('npm-repo')).toBeInTheDocument()
+    expect(screen.getByText('pnpm-repo')).toBeInTheDocument()
+    expect(screen.getByText('npm')).toHaveClass('bg-orange-100')
+    expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100')
+
+    fireEvent.click(screen.getByRole('button', { name: 'npm (1)' }))
+    expect(screen.getByText('npm-repo')).toBeInTheDocument()
+    expect(screen.queryByText('pnpm-repo')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'pnpm (1)' }))
+    expect(screen.queryByText('npm-repo')).not.toBeInTheDocument()
+    expect(screen.getByText('pnpm-repo')).toBeInTheDocument()
   })
 
   it('excludes package-only warnings from the needs-attention filter', async () => {

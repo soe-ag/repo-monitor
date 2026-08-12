@@ -49,6 +49,7 @@ export default defineSchema({
     latestDeploymentCheckedAt: v.optional(v.number()),
     lastSeenAt: v.optional(v.number()),
     hasPackageJson: v.optional(v.boolean()),
+    packageManager: v.optional(v.union(v.literal('npm'), v.literal('pnpm'))),
     lastScanAt: v.optional(v.number()),
     lastScanRunId: v.optional(v.id('scanRuns')),
     lastScanStatus: v.optional(

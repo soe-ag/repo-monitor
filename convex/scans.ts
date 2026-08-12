@@ -29,6 +29,7 @@ import {
   type LatestDeploymentStatus,
 } from './github'
 import { resolveGitHubToken } from './tokenSource'
+import { inferPackageManager, type PackageManager } from './packageManager'
 
 type GitHubRepository = {
   id: number
@@ -48,6 +49,7 @@ type GitHubRepository = {
 
 type GitHubContentResponse = {
   type: 'file' | 'dir'
+  name?: string
   content?: string
   encoding?: string
 }
@@ -361,6 +363,7 @@ export const saveRepositoryScanResult = mutation({
     repositoryId: v.id('repositories'),
     scanRunId: v.id('scanRuns'),
     hasPackageJson: v.boolean(),
+    packageManager: v.optional(v.union(v.literal('npm'), v.literal('pnpm'))),
     packageFindings: v.array(
       v.object({
         packageName: v.string(),
@@ -447,6 +450,7 @@ export const saveRepositoryScanResult = mutation({
 
     await ctx.db.patch(args.repositoryId, {
       hasPackageJson: args.hasPackageJson,
+      packageManager: args.packageManager,
       lastScanAt: now,
       lastScanRunId: args.scanRunId,
       lastScanStatus: args.repositoryStatus,
@@ -942,6 +946,18 @@ async function runRepositoryScan(
     fetchPackageJson(args.connectionToken, args.repository),
   ])
   let dependencyCapDetail: string | null = null
+  const packageManagerPromise: Promise<PackageManager | undefined> = packageJsonResult.ok
+    ? detectPackageManager(
+        args.connectionToken,
+        args.repository,
+        packageJsonResult.packageJson.packageManager
+      )
+    : Promise.resolve(undefined)
+  const checklistPromise = evaluateChecklist(
+    args.connectionToken,
+    args.repository,
+    packageJsonResult.ok ? packageJsonResult.packageJson : null
+  )
 
   const packageFindings: PackageFinding[] = []
   if (packageJsonResult.ok) {
@@ -990,11 +1006,8 @@ async function runRepositoryScan(
     }
   }
 
-  const checklistFindings: ChecklistFinding[] = await evaluateChecklist(
-    args.connectionToken,
-    args.repository,
-    packageJsonResult.ok ? packageJsonResult.packageJson : null
-  )
+  const [checklistFindings, packageManager]: [ChecklistFinding[], PackageManager | undefined] =
+    await Promise.all([checklistPromise, packageManagerPromise])
   if (dependencyCapDetail) {
     checklistFindings.push({
       checkKey: 'dependency-scan-cap',
@@ -1015,6 +1028,7 @@ async function runRepositoryScan(
     repositoryId: args.repositoryId,
     scanRunId: args.scanRunId,
     hasPackageJson: packageJsonResult.ok,
+    packageManager,
     packageFindings,
     checklistFindings,
     repositoryStatus,
@@ -1139,6 +1153,7 @@ async function fetchPackageJson(token: string, repository: GitHubRepository) {
     }
 
     const packageJson = JSON.parse(rawPackageJson) as {
+      packageManager?: string
       scripts?: Record<string, string>
       dependencies?: Record<string, string>
       devDependencies?: Record<string, string>
@@ -1150,6 +1165,30 @@ async function fetchPackageJson(token: string, repository: GitHubRepository) {
       return { ok: false, error: 'package.json missing' } as const
     }
     throw error
+  }
+}
+
+async function detectPackageManager(
+  token: string,
+  repository: GitHubRepository,
+  declaredPackageManager: string | undefined
+): Promise<PackageManager | undefined> {
+  const declared = inferPackageManager(declaredPackageManager, [])
+  if (declared) {
+    return declared
+  }
+
+  try {
+    const rootContents = await fetchGitHubJson<GitHubContentResponse[]>(
+      `/repos/${repository.owner.login}/${repository.name}/contents?ref=${repository.default_branch}`,
+      { token }
+    )
+    return inferPackageManager(
+      declaredPackageManager,
+      rootContents.flatMap((entry) => (entry.name ? [entry.name] : []))
+    )
+  } catch {
+    return undefined
   }
 }
 
