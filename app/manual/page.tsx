@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ModeToggle } from '@/components/mode-toggle'
 
 export default function ManualPage() {
   return (
@@ -14,12 +15,15 @@ export default function ManualPage() {
               process.
             </p>
           </div>
-          <Link
-            href="/"
-            className="shrink-0 rounded-full border border-border/70 px-4 py-2 text-sm text-foreground hover:bg-muted"
-          >
-            ← Home
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <ModeToggle />
+            <Link
+              href="/"
+              className="rounded-full border border-border/70 bg-background/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              ← Home
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -171,9 +175,9 @@ export default function ManualPage() {
             with at least one warning, missing, stale, or error finding.
           </li>
           <li>
-            <strong className="text-foreground">Filter: npm or pnpm</strong> shows only
-            repositories using the selected package manager. Package managers are detected during
-            repository scans.
+            <strong className="text-foreground">Filter: npm or pnpm</strong> shows only repositories
+            using the selected package manager. Package managers are detected during repository
+            scans.
           </li>
         </ul>
       </section>
@@ -181,7 +185,7 @@ export default function ManualPage() {
       <div className="flex items-center justify-between">
         <Link
           href="/"
-          className="rounded-full border border-border/70 px-4 py-2 text-sm text-foreground hover:bg-muted"
+          className="rounded-full border border-border/70 bg-background/80 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >
           ← Back to dashboard
         </Link>

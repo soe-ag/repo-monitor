@@ -77,7 +77,7 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
 
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
-    expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100')
+    expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100', 'dark:bg-sky-900')
     expect(screen.getByText(/Eligible updates:/)).toBeInTheDocument()
     expect(
       screen.getByText((_, element) => element?.textContent === 'Checklist: 1 passed / 0 failed')
@@ -139,8 +139,8 @@ describe('RepoHealthSetup', () => {
 
     expect(await screen.findByText('npm-repo')).toBeInTheDocument()
     expect(screen.getByText('pnpm-repo')).toBeInTheDocument()
-    expect(screen.getByText('npm')).toHaveClass('bg-orange-100')
-    expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100')
+    expect(screen.getByText('npm')).toHaveClass('bg-orange-100', 'dark:bg-orange-900')
+    expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100', 'dark:bg-sky-900')
 
     fireEvent.click(screen.getByRole('button', { name: 'npm (1)' }))
     expect(screen.getByText('npm-repo')).toBeInTheDocument()
@@ -254,6 +254,13 @@ describe('RepoHealthSetup', () => {
     expect(screen.getByText('Selected: 10/10')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Scan selected' }))
+
+    expect(
+      await screen.findByText('Scan all queued for 10 repositories. Watching updates...')
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Scan selected' })).toBeEnabled()
+    })
 
     const postCall = fetchMock.mock.calls.find(
       ([url, init]) => String(url).endsWith('/api/scans') && init?.method === 'POST'

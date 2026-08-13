@@ -133,6 +133,11 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 22%, transparent);
   }
 }
 
@@ -140,4 +145,19 @@
   background-image:
     radial-gradient(1100px 500px at 0% -10%, oklch(0.25 0.02 255 / 0.6), transparent 60%),
     radial-gradient(900px 420px at 100% 0%, oklch(0.22 0.02 220 / 0.5), transparent 55%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,15 +1,8 @@
 'use client'
 
-import { type FormEvent, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import {
-  ExclamationTriangleIcon,
-  Link2Icon,
-  MoonIcon,
-  ReloadIcon,
-  SunIcon,
-  TrashIcon,
-} from '@radix-ui/react-icons'
+import { ExclamationTriangleIcon, Link2Icon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   Activity,
   AlertTriangle,
@@ -31,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ModeToggle } from '@/components/mode-toggle'
 import {
   Select,
   SelectContent,
@@ -39,184 +33,39 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-
-type HealthStatus = 'ok' | 'warning' | 'missing' | 'stale' | 'error' | 'unknown'
-type LatestCommitBuildStatus = 'passing' | 'failing'
-type LatestDeploymentStatus = 'deployed' | 'not-deployed'
-type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
-type PackageManager = 'npm' | 'pnpm'
-type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json' | PackageManager
-type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
-
-type ConnectionState = {
-  status: ConnectionStatus
-  connected: boolean
-  rateLimitResetAt?: number
-  lastValidatedAt?: number
-  lastError?: string
-  accountLogin?: string
-  accountName?: string
-  accountAvatarUrl?: string
-  accountHtmlUrl?: string
-}
-
-type PackageFinding = {
-  _id: string
-  packageName: string
-  currentVersion: string
-  latestVersion: string
-  updateType: 'none' | 'patch' | 'minor' | 'major' | 'unknown'
-  status: HealthStatus
-}
-
-type ChecklistFinding = {
-  _id: string
-  checkKey: string
-  status: HealthStatus
-  detail?: string
-}
-
-type RepositoryHealthCard = {
-  _id: string
-  _creationTime: number
-  fullName: string
-  htmlUrl: string
-  defaultBranch: string
-  primaryLanguage?: string
-  hasPackageJson?: boolean
-  packageManager?: PackageManager
-  visibility: 'public' | 'private'
-  githubCreatedAt?: number
-  githubUpdatedAt?: number
-  pushedAt?: number
-  latestCommitSha?: string
-  latestCommitUrl?: string
-  latestCommitBuildStatus?: LatestCommitBuildStatus
-  latestCommitBuildDetail?: string
-  latestCommitBuildCheckedAt?: number
-  latestDeploymentStatus?: LatestDeploymentStatus
-  latestDeploymentEnvironment?: string
-  latestDeploymentUrl?: string
-  latestDeploymentDetail?: string
-  latestDeploymentCheckedAt?: number
-  lastScanAt?: number
-  lastScanStatus?: HealthStatus
-  lastScanError?: string
-  packageFindings: PackageFinding[]
-  checklistFindings: ChecklistFinding[]
-}
-
-type SvglApiEntry = {
-  title: string
-  route: string | { light?: string; dark?: string }
-}
-
-type StackLogo = {
-  name: string
-  iconUrl: string
-}
-
-type ScanActivity = {
-  mode: 'all' | 'single'
-  status: 'running' | 'completed' | 'timed-out'
-  startedAt: number
-  lastCheckedAt?: number
-  repositoryId?: string
-  repositoryName?: string
-  currentRepositoryName?: string
-  selectedRepositoryIds?: string[]
-  processedCount?: number
-  totalCount?: number
-}
-
-const MAX_SCAN_SELECTION = 10
-
-const sortOptions: Array<{ value: SortOption; label: string }> = [
-  { value: 'alphabetical', label: 'Alphabetical' },
-  { value: 'created-desc', label: 'Created date' },
-  { value: 'updated-desc', label: 'Updated date' },
-]
-
-const checklistLabels: Record<string, string> = {
-  'tests-configured': 'Tests',
-  'cicd-workflow': 'CI/CD',
-  'readme-exists': 'README',
-  'readme-freshness': 'README freshness',
-  'dependabot-config': 'Dependabot',
-  'security-advisories': 'Security alerts',
-}
-
-function isOptionalChecklistFinding(checkKey: string) {
-  return checkKey === 'dependabot-config'
-}
-
-const stackAlias: Record<string, string> = {
-  next: 'next.js',
-  react: 'react',
-  typescript: 'typescript',
-  javascript: 'javascript',
-  tailwindcss: 'tailwind css',
-  vite: 'vite',
-  vitest: 'vitest',
-  convex: 'convex',
-  prisma: 'prisma',
-  docker: 'docker',
-  eslint: 'eslint',
-  jest: 'jest',
-  node: 'node.js',
-  'node.js': 'node.js',
-  'c#': 'c#',
-  'c++': 'c++',
-  'objective-c': 'objective-c',
-  'objective-c++': 'objective-c++',
-  go: 'go',
-  rust: 'rust',
-  python: 'python',
-  java: 'java',
-  kotlin: 'kotlin',
-  swift: 'swift',
-  php: 'php',
-  ruby: 'ruby',
-  'jupyter notebook': 'jupyter',
-  html: 'html5',
-  css: 'css',
-  scss: 'sass',
-  vue: 'vue.js',
-  svelte: 'svelte',
-  angular: 'angular',
-  'c sharp': 'c#',
-  cpp: 'c++',
-  express: 'express',
-  mongodb: 'mongodb',
-  postgres: 'postgresql',
-  mysql: 'mysql',
-  redis: 'redis',
-  aws: 'amazon web services',
-  'aws-sdk': 'amazon web services',
-}
-
-function needsAttention(status: HealthStatus | undefined) {
-  return status === 'warning' || status === 'missing' || status === 'stale' || status === 'error'
-}
+import {
+  MAX_SCAN_SELECTION,
+  checklistLabels,
+  getEligiblePackageUpdates,
+  getRepositoryDisplayName,
+  getRequiredChecklistFailures,
+  getStackLogos,
+  hasRequiredChecklistAttention,
+  isOptionalChecklistFinding,
+  isRepositoryHealthy,
+  normalizeSvglRoute,
+  sortOptions,
+  type ConnectionState,
+  type ConnectionStatus,
+  type DashboardFilter,
+  type HealthStatus,
+  type LatestCommitBuildStatus,
+  type LatestDeploymentStatus,
+  type PackageManager,
+  type RepositoryHealthCard,
+  type ScanActivity,
+  type SortOption,
+  type SvglApiEntry,
+} from '@/components/repo-health-model'
 
 function packageManagerBadgeClass(packageManager: PackageManager | undefined) {
   if (packageManager === 'npm') {
-    return 'border-orange-200 bg-orange-100'
+    return 'border-orange-200 bg-orange-100 dark:border-orange-700 dark:bg-orange-900'
   }
   if (packageManager === 'pnpm') {
-    return 'border-sky-200 bg-sky-100'
+    return 'border-sky-200 bg-sky-100 dark:border-sky-700 dark:bg-sky-900'
   }
   return undefined
-}
-
-function hasRequiredChecklistAttention(repository: RepositoryHealthCard) {
-  return (
-    repository.latestCommitBuildStatus === 'failing' ||
-    repository.latestDeploymentStatus === 'not-deployed' ||
-    repository.checklistFindings.some(
-      (finding) => !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
-    )
-  )
 }
 
 function buildStatusLabel(status: LatestCommitBuildStatus) {
@@ -263,29 +112,9 @@ function ChecklistStatusIcon({
   return <CircleHelp className="size-4 text-muted-foreground" aria-hidden />
 }
 
-function toAbsoluteSvglRoute(route: string) {
-  return route.startsWith('http')
-    ? route
-    : `https://svgl.app${route.startsWith('/') ? route : `/${route}`}`
-}
-
-function normalizeSvglRoute(route: SvglApiEntry['route']) {
-  if (typeof route === 'string') {
-    return toAbsoluteSvglRoute(route)
-  }
-  if (route.dark) {
-    return toAbsoluteSvglRoute(route.dark)
-  }
-  if (route.light) {
-    return toAbsoluteSvglRoute(route.light)
-  }
-  return null
-}
-
 export function RepoHealthSetup() {
   const currentYear = new Date().getFullYear()
   const [pat, setPat] = useState('')
-  const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [filter, setFilter] = useState<DashboardFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
   const [minimumYear, setMinimumYear] = useState<number>(() => new Date().getFullYear() - 2)
@@ -299,6 +128,7 @@ export function RepoHealthSetup() {
   const [scanActivity, setScanActivity] = useState<ScanActivity | null>(null)
   const [selectedRepositoryIds, setSelectedRepositoryIds] = useState<string[]>([])
   const [svglMap, setSvglMap] = useState<Record<string, string>>({})
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [loadingState, setLoadingState] = useState({
     connecting: false,
     deletingConnection: false,
@@ -419,39 +249,17 @@ export function RepoHealthSetup() {
     return new Date(oldestTimestamp).getFullYear()
   }, [currentYear, repositories])
 
-  // Initialize theme from localStorage/system preferences after mount to avoid hydration mismatch
-  useLayoutEffect(() => {
-    const storedTheme = window.localStorage.getItem('theme')
-    const systemPrefersDark =
-      typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-        : false
-
-    if (storedTheme === 'dark' || storedTheme === 'light') {
-      setTheme(storedTheme) // eslint-disable-line react-hooks/set-state-in-effect
-      document.documentElement.classList.toggle('dark', storedTheme === 'dark')
-    } else if (systemPrefersDark) {
-      setTheme('dark')
-      document.documentElement.classList.toggle('dark', true)
-    }
-  }, [])
-
   useEffect(() => {
     void loadConnection()
     void loadRepositories()
     void loadSvglCatalog()
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
   }, [])
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-  }, [theme])
-
-  function toggleTheme() {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark'
-    setTheme(nextTheme)
-    window.localStorage.setItem('theme', nextTheme)
-    document.documentElement.classList.toggle('dark', nextTheme === 'dark')
-  }
 
   async function loadSvglCatalog() {
     try {
@@ -493,8 +301,7 @@ export function RepoHealthSetup() {
       if (isMissingAccountProfile) {
         const refreshResponse = await fetch('/api/github-connection', { method: 'PUT' })
         const refreshedPayload = (await refreshResponse.json()) as
-          | ConnectionState
-          | { error: string }
+          ConnectionState | { error: string }
         if (!('error' in refreshedPayload)) {
           setConnectionState(refreshedPayload)
         }
@@ -530,9 +337,7 @@ export function RepoHealthSetup() {
     try {
       const response = await fetch('/api/repositories', { method: 'PUT' })
       const payload = (await response.json()) as
-        | { ok: true; repositoryCount: number }
-        | { ok: false; message?: string }
-        | { error: string }
+        { ok: true; repositoryCount: number } | { ok: false; message?: string } | { error: string }
 
       if ('error' in payload || !payload.ok) {
         setMessage(
@@ -557,14 +362,28 @@ export function RepoHealthSetup() {
   }
 
   async function pollQueuedScans(targetRepositoryId?: string, repositoryIds?: string[]) {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+
     const pollStartedAt = Date.now()
     let attempts = 0
+    let stopped = false
     const maxAttempts = 120
     const isSingleScan = Boolean(targetRepositoryId)
     const selectedSet = new Set(repositoryIds ?? [])
     const selectedIds = repositoryIds?.slice(0, MAX_SCAN_SELECTION) ?? []
 
-    const pollOnce = async (interval?: ReturnType<typeof setInterval>) => {
+    const stopPolling = () => {
+      stopped = true
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+    }
+
+    const pollOnce = async () => {
       attempts += 1
       try {
         const response = await fetch(
@@ -642,9 +461,7 @@ export function RepoHealthSetup() {
           : processedCount >= Math.min(repositoryIds?.length ?? 0, MAX_SCAN_SELECTION)
 
         if (hasCompleted || attempts >= maxAttempts) {
-          if (interval) {
-            clearInterval(interval)
-          }
+          stopPolling()
           setScanActivity((prev) =>
             prev
               ? {
@@ -662,9 +479,7 @@ export function RepoHealthSetup() {
         }
       } catch {
         if (attempts >= maxAttempts) {
-          if (interval) {
-            clearInterval(interval)
-          }
+          stopPolling()
           setScanActivity((prev) =>
             prev
               ? {
@@ -679,9 +494,11 @@ export function RepoHealthSetup() {
     }
 
     await pollOnce()
-    const interval = setInterval(() => {
-      void pollOnce(interval)
-    }, 3500)
+    if (!stopped) {
+      pollIntervalRef.current = setInterval(() => {
+        void pollOnce()
+      }, 3500)
+    }
   }
 
   function selectLastTenRepositories() {
@@ -732,8 +549,7 @@ export function RepoHealthSetup() {
     })
 
     const payload = (await response.json()) as
-      | { ok: boolean; status: ConnectionStatus; error?: string }
-      | { error: string }
+      { ok: boolean; status: ConnectionStatus; error?: string } | { error: string }
 
     if ('error' in payload) {
       setMessage(payload.error ?? 'GitHub connection failed')
@@ -845,47 +661,6 @@ export function RepoHealthSetup() {
     setLoadingState((prev) => ({ ...prev, deletingConnection: false }))
   }
 
-  function findStackLogos(repository: RepositoryHealthCard): StackLogo[] {
-    const seen = new Set<string>()
-    const logos: StackLogo[] = []
-
-    const language = repository.primaryLanguage?.toLowerCase().trim()
-    if (language) {
-      const normalizedLanguage = stackAlias[language] ?? language
-      const languageLogo = svglMap[normalizedLanguage]
-      if (languageLogo) {
-        logos.push({ name: normalizedLanguage, iconUrl: languageLogo })
-        seen.add(normalizedLanguage)
-      }
-    }
-
-    for (const finding of repository.packageFindings) {
-      const pkg = finding.packageName.toLowerCase()
-      const normalized = stackAlias[pkg] ?? pkg
-      if (seen.has(normalized)) {
-        continue
-      }
-
-      const route = svglMap[normalized]
-      if (!route) {
-        continue
-      }
-
-      logos.push({ name: normalized, iconUrl: route })
-      seen.add(normalized)
-      if (logos.length >= 3) {
-        break
-      }
-    }
-
-    return logos
-  }
-
-  function getRepositoryDisplayName(fullName: string) {
-    const parts = fullName.split('/')
-    return parts[parts.length - 1] ?? fullName
-  }
-
   return (
     <>
       <a
@@ -897,7 +672,7 @@ export function RepoHealthSetup() {
       <main className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
         {message ? (
           <div
-            className="rounded-xl border border-border/60 bg-muted/30 px-4 py-2 text-sm text-foreground"
+            className="rounded-xl border border-border/60 bg-card/90 px-4 py-2 text-sm text-foreground shadow-sm backdrop-blur"
             role="status"
             aria-live="polite"
           >
@@ -921,17 +696,7 @@ export function RepoHealthSetup() {
                 </CardTitle>
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="size-8 rounded-full bg-background/80"
-                      onClick={toggleTheme}
-                      aria-label="Toggle theme"
-                      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                    >
-                      {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-                    </Button>
+                    <ModeToggle />
                     <Badge
                       variant={connectionBadge.variant}
                       className="rounded-full px-3 py-1 text-xs"
@@ -1080,9 +845,13 @@ export function RepoHealthSetup() {
                 </span>
                 <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
                   Checklist:{' '}
-                  <span className="text-emerald-700">{checklistStats.passed} passed</span>
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    {checklistStats.passed} passed
+                  </span>
                   {' / '}
-                  <span className="text-amber-700">{checklistStats.failed} failed</span>
+                  <span className="text-amber-700 dark:text-amber-400">
+                    {checklistStats.failed} failed
+                  </span>
                 </span>
               </div>
 
@@ -1173,6 +942,7 @@ export function RepoHealthSetup() {
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'all' ? 'default' : 'ghost'}
                   onClick={() => setFilter('all')}
+                  aria-pressed={filter === 'all'}
                 >
                   All ({filterCounts.all})
                 </Button>
@@ -1181,6 +951,7 @@ export function RepoHealthSetup() {
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'has-package-json' ? 'default' : 'ghost'}
                   onClick={() => setFilter('has-package-json')}
+                  aria-pressed={filter === 'has-package-json'}
                 >
                   Has package.json ({filterCounts.hasPackageJson})
                 </Button>
@@ -1189,6 +960,7 @@ export function RepoHealthSetup() {
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'npm' ? 'default' : 'ghost'}
                   onClick={() => setFilter('npm')}
+                  aria-pressed={filter === 'npm'}
                 >
                   npm ({filterCounts.npm})
                 </Button>
@@ -1197,6 +969,7 @@ export function RepoHealthSetup() {
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'pnpm' ? 'default' : 'ghost'}
                   onClick={() => setFilter('pnpm')}
+                  aria-pressed={filter === 'pnpm'}
                 >
                   pnpm ({filterCounts.pnpm})
                 </Button>
@@ -1205,6 +978,7 @@ export function RepoHealthSetup() {
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
                   variant={filter === 'needs-attention' ? 'default' : 'ghost'}
                   onClick={() => setFilter('needs-attention')}
+                  aria-pressed={filter === 'needs-attention'}
                 >
                   Needs attention ({filterCounts.needs})
                 </Button>
@@ -1294,22 +1068,16 @@ export function RepoHealthSetup() {
             className="grid scroll-mt-6 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5"
           >
             {sortedRepositories.map((repository) => {
-              const eligibleUpdates = repository.packageFindings.filter(
-                (finding) => finding.status === 'warning'
-              )
-              const failedChecklist = repository.checklistFindings.filter(
-                (finding) =>
-                  !isOptionalChecklistFinding(finding.checkKey) && needsAttention(finding.status)
-              )
-              const isPerfect =
-                Boolean(repository.lastScanAt) &&
-                failedChecklist.length === 0 &&
-                repository.latestCommitBuildStatus !== 'failing' &&
-                repository.latestDeploymentStatus !== 'not-deployed'
-              const stackLogos = findStackLogos(repository)
+              const eligibleUpdates = getEligiblePackageUpdates(repository)
+              const failedChecklist = getRequiredChecklistFailures(repository)
+              const isPerfect = isRepositoryHealthy(repository)
+              const stackLogos = getStackLogos(repository, svglMap)
 
               return (
-                <Card key={repository._id} className="h-full">
+                <Card
+                  key={repository._id}
+                  className="h-full border-border/60 bg-card/95 shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md"
+                >
                   <CardHeader>
                     <CardTitle className="flex items-center justify-between gap-2 text-base">
                       <label className="mr-1 inline-flex items-center" title="Select repository">
@@ -1324,7 +1092,7 @@ export function RepoHealthSetup() {
                             selectedRepositoryIds.length >= MAX_SCAN_SELECTION
                           }
                           aria-label={`Select ${repository.fullName}`}
-                          className="size-4 cursor-pointer rounded border border-border"
+                          className="size-4 cursor-pointer rounded border border-border accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
                         />
                       </label>
                       <span className="line-clamp-1">
@@ -1335,7 +1103,7 @@ export function RepoHealthSetup() {
                         variant="ghost"
                         className="size-7 shrink-0"
                         asChild
-                        aria-label="Open GitHub repository"
+                        aria-label={`Open ${repository.fullName} on GitHub`}
                         title="Open GitHub repository"
                       >
                         <a href={repository.htmlUrl} target="_blank" rel="noreferrer">
