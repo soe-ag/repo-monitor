@@ -93,7 +93,7 @@ describe('RepoHealthSetup', () => {
     expect(screen.getByText(/Dependabot config file missing/)).toBeInTheDocument()
   })
 
-  it('filters repository cards by package manager', async () => {
+  it('filters repository cards with debounced custom filters', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
@@ -142,13 +142,12 @@ describe('RepoHealthSetup', () => {
     expect(screen.getByText('npm')).toHaveClass('bg-orange-100', 'dark:bg-orange-900')
     expect(screen.getByText('pnpm')).toHaveClass('bg-sky-100', 'dark:bg-sky-900')
 
-    fireEvent.click(screen.getByRole('button', { name: 'npm (1)' }))
-    expect(screen.getByText('npm-repo')).toBeInTheDocument()
-    expect(screen.queryByText('pnpm-repo')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'pnpm (1)' }))
-    expect(screen.queryByText('npm-repo')).not.toBeInTheDocument()
-    expect(screen.getByText('pnpm-repo')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    fireEvent.click(screen.getByLabelText('npm'))
+    await waitFor(() => {
+      expect(screen.getByText('npm-repo')).toBeInTheDocument()
+      expect(screen.queryByText('pnpm-repo')).not.toBeInTheDocument()
+    })
   })
 
   it('excludes package-only warnings from the needs-attention filter', async () => {
@@ -198,9 +197,12 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
     expect(await screen.findByText('repo-monitor')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /Needs attention/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    fireEvent.click(screen.getByLabelText('Needs attention'))
 
-    expect(screen.getByText('No repositories match the current filter.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('No repositories match the current filter.')).toBeInTheDocument()
+    })
   })
 
   it('caps scan all selection and request payload to 10 repositories', async () => {

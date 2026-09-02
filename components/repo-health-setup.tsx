@@ -112,12 +112,49 @@ function ChecklistStatusIcon({
   return <CircleHelp className="size-4 text-muted-foreground" aria-hidden />
 }
 
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="font-semibold text-foreground">{title}</legend>
+      {children}
+    </fieldset>
+  )
+}
+
+function FilterCheckbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  onChange: () => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-muted-foreground">
+      <input type="checkbox" checked={checked} onChange={onChange} className="size-4 accent-foreground" />
+      <span>{label}</span>
+    </label>
+  )
+}
+
 export function RepoHealthSetup() {
   const currentYear = new Date().getFullYear()
   const [pat, setPat] = useState('')
   const [filter, setFilter] = useState<DashboardFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
-  const [minimumYear, setMinimumYear] = useState<number>(() => new Date().getFullYear() - 2)
+  const [customFilters, setCustomFilters] = useState({
+    scanned: false,
+    notScanned: false,
+    npm: false,
+    pnpm: false,
+    hasPackageJson: false,
+    needsAttention: false,
+    private: false,
+    public: false,
+    years: [] as number[],
+  })
+  const [appliedCustomFilters, setAppliedCustomFilters] = useState(customFilters)
   const [connectionState, setConnectionState] = useState<ConnectionState | null>(null)
   const [repositories, setRepositories] = useState<RepositoryHealthCard[]>([])
   const [message, setMessage] = useState<string | null>(null)
@@ -152,32 +189,37 @@ export function RepoHealthSetup() {
     return { text: 'invalid', variant: 'destructive' as const }
   }, [connectionState])
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setAppliedCustomFilters(customFilters), 250)
+    return () => window.clearTimeout(timeout)
+  }, [customFilters])
+
   const filteredRepositories = useMemo(() => {
-    const fromTimestamp = new Date(minimumYear, 0, 1).getTime()
-    const repositoriesWithinYear = repositories.filter((repository) => {
-      const createdAt = repository.githubCreatedAt ?? 0
-      const updatedAt =
-        repository.githubUpdatedAt ?? repository.pushedAt ?? repository.lastScanAt ?? 0
-      const latestTimestamp = Math.max(createdAt, updatedAt)
+    if (filter === 'all') return repositories
+    const selected = appliedCustomFilters
+    const packageManagers = [selected.npm && 'npm', selected.pnpm && 'pnpm'].filter(Boolean)
+    const visibilities = [selected.private && 'private', selected.public && 'public'].filter(Boolean)
+    const scanStates = [selected.scanned, selected.notScanned].filter(Boolean)
 
-      if (latestTimestamp === 0) {
-        return true
+    return repositories.filter((repository) => {
+      if (scanStates.length > 0 && !scanStates.includes(Boolean(repository.lastScanAt))) return false
+      if (
+        packageManagers.length > 0 &&
+        !packageManagers.includes(repository.packageManager as PackageManager)
+      )
+        return false
+      if (selected.hasPackageJson && repository.hasPackageJson !== true) return false
+      if (selected.needsAttention && !hasRequiredChecklistAttention(repository)) return false
+      if (visibilities.length > 0 && !visibilities.includes(repository.visibility)) return false
+      if (selected.years.length > 0) {
+        const createdYear = repository.githubCreatedAt
+          ? new Date(repository.githubCreatedAt).getFullYear()
+          : null
+        if (!createdYear || !selected.years.includes(createdYear)) return false
       }
-
-      return latestTimestamp >= fromTimestamp
+      return true
     })
-
-    if (filter === 'needs-attention') {
-      return repositoriesWithinYear.filter(hasRequiredChecklistAttention)
-    }
-    if (filter === 'has-package-json') {
-      return repositoriesWithinYear.filter((repository) => repository.hasPackageJson === true)
-    }
-    if (filter === 'npm' || filter === 'pnpm') {
-      return repositoriesWithinYear.filter((repository) => repository.packageManager === filter)
-    }
-    return repositoriesWithinYear
-  }, [filter, minimumYear, repositories])
+  }, [appliedCustomFilters, filter, repositories])
 
   const sortedRepositories = useMemo(() => {
     const list = [...filteredRepositories]
@@ -189,6 +231,13 @@ export function RepoHealthSetup() {
         const aCreated = a.githubCreatedAt ?? a._creationTime
         const bCreated = b.githubCreatedAt ?? b._creationTime
         return bCreated - aCreated
+      })
+    }
+    if (sortBy === 'created-asc') {
+      return list.sort((a, b) => {
+        const aCreated = a.githubCreatedAt ?? a._creationTime
+        const bCreated = b.githubCreatedAt ?? b._creationTime
+        return aCreated - bCreated
       })
     }
     return list.sort((a, b) => {
@@ -206,17 +255,6 @@ export function RepoHealthSetup() {
     })
   }, [repositories])
 
-  const filterCounts = useMemo(() => {
-    const all = repositories.length
-    const needs = repositories.filter(hasRequiredChecklistAttention).length
-    const hasPackageJson = repositories.filter(
-      (repository) => repository.hasPackageJson === true
-    ).length
-    const npm = repositories.filter((repository) => repository.packageManager === 'npm').length
-    const pnpm = repositories.filter((repository) => repository.packageManager === 'pnpm').length
-    return { all, needs, hasPackageJson, npm, pnpm }
-  }, [repositories])
-
   const checklistStats = useMemo(() => {
     const scannedRepositories = repositories.filter((repository) => Boolean(repository.lastScanAt))
     const failed = scannedRepositories.filter(hasRequiredChecklistAttention).length
@@ -231,23 +269,37 @@ export function RepoHealthSetup() {
     return latest > 0 ? latest : null
   }, [repositories])
 
-  const oldestCreatedYear = useMemo(() => {
-    if (repositories.length === 0) {
-      return currentYear - 2
-    }
+  const availableYears = useMemo(
+    () => Array.from({ length: Math.max(1, currentYear - 2022 + 1) }, (_, index) => currentYear - index),
+    [currentYear]
+  )
 
-    let oldestTimestamp = Number.POSITIVE_INFINITY
-    for (const repository of repositories) {
-      const createdAt = repository.githubCreatedAt ?? repository._creationTime
-      oldestTimestamp = Math.min(oldestTimestamp, createdAt)
-    }
+  function toggleCustomFilter(key: keyof Omit<typeof customFilters, 'years'>) {
+    setCustomFilters((previous) => ({ ...previous, [key]: !previous[key] }))
+  }
 
-    if (!Number.isFinite(oldestTimestamp)) {
-      return currentYear - 2
-    }
+  function toggleCustomYear(year: number) {
+    setCustomFilters((previous) => ({
+      ...previous,
+      years: previous.years.includes(year)
+        ? previous.years.filter((value) => value !== year)
+        : [...previous.years, year].sort((a, b) => b - a),
+    }))
+  }
 
-    return new Date(oldestTimestamp).getFullYear()
-  }, [currentYear, repositories])
+  function clearCustomFilters() {
+    setCustomFilters({
+      scanned: false,
+      notScanned: false,
+      npm: false,
+      pnpm: false,
+      hasPackageJson: false,
+      needsAttention: false,
+      private: false,
+      public: false,
+      years: [],
+    })
+  }
 
   useEffect(() => {
     void loadConnection()
@@ -511,6 +563,12 @@ export function RepoHealthSetup() {
         ? `Selected last ${nextIds.length} repositories for Scan all.`
         : 'No repositories available to select.'
     )
+  }
+
+  function selectAllRepositories() {
+    const nextIds = lastUpdatedSortedRepositories.slice(0, MAX_SCAN_SELECTION).map((repository) => repository._id)
+    setSelectedRepositoryIds(nextIds)
+    setMessage(`Selected ${nextIds.length} repositories for scanning.`)
   }
 
   function unselectAllRepositories() {
@@ -778,6 +836,17 @@ export function RepoHealthSetup() {
                 >
                   How scans work <span aria-hidden="true">&rarr;</span>
                 </Link>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full px-3 text-xs"
+                  onClick={() => void refreshRepositories()}
+                  disabled={!connectionState?.connected || loadingState.refreshingRepositories}
+                >
+                  <ReloadIcon className={loadingState.refreshingRepositories ? 'animate-spin' : undefined} />
+                  {loadingState.refreshingRepositories ? 'Refreshing...' : 'Refresh repositories'}
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="relative space-y-3 px-5 pb-1">
@@ -867,20 +936,21 @@ export function RepoHealthSetup() {
                     onClick={() => void triggerScanAll()}
                     disabled={loadingState.scanningAll || selectedRepositoryIds.length === 0}
                   >
-                    {loadingState.scanningAll ? 'Queueing...' : 'Scan selected'}
+                    {loadingState.scanningAll
+                      ? 'Queueing...'
+                      : selectedRepositoryIds.length === repositories.length && repositories.length > 0
+                        ? 'Scan all'
+                        : 'Scan selected'}
                   </Button>
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
-                    onClick={() => void refreshRepositories()}
-                    disabled={!connectionState?.connected || loadingState.refreshingRepositories}
+                    onClick={selectAllRepositories}
+                    disabled={repositories.length === 0 || selectedRepositoryIds.length >= MAX_SCAN_SELECTION}
                   >
-                    <ReloadIcon
-                      className={loadingState.refreshingRepositories ? 'animate-spin' : undefined}
-                    />
-                    {loadingState.refreshingRepositories ? 'Refreshing...' : 'Refresh repositories'}
+                    Select all
                   </Button>
                   <Button
                     type="button"
@@ -944,44 +1014,52 @@ export function RepoHealthSetup() {
                   onClick={() => setFilter('all')}
                   aria-pressed={filter === 'all'}
                 >
-                  All ({filterCounts.all})
+                  All ({repositories.length})
                 </Button>
                 <Button
                   size="sm"
                   className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
-                  variant={filter === 'has-package-json' ? 'default' : 'ghost'}
-                  onClick={() => setFilter('has-package-json')}
-                  aria-pressed={filter === 'has-package-json'}
+                  variant={filter === 'custom' ? 'default' : 'ghost'}
+                  onClick={() => setFilter('custom')}
+                  aria-pressed={filter === 'custom'}
                 >
-                  Has package.json ({filterCounts.hasPackageJson})
+                  Custom
                 </Button>
-                <Button
-                  size="sm"
-                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
-                  variant={filter === 'npm' ? 'default' : 'ghost'}
-                  onClick={() => setFilter('npm')}
-                  aria-pressed={filter === 'npm'}
-                >
-                  npm ({filterCounts.npm})
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
-                  variant={filter === 'pnpm' ? 'default' : 'ghost'}
-                  onClick={() => setFilter('pnpm')}
-                  aria-pressed={filter === 'pnpm'}
-                >
-                  pnpm ({filterCounts.pnpm})
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8 w-full rounded-full px-3 text-xs sm:h-7 sm:w-auto"
-                  variant={filter === 'needs-attention' ? 'default' : 'ghost'}
-                  onClick={() => setFilter('needs-attention')}
-                  aria-pressed={filter === 'needs-attention'}
-                >
-                  Needs attention ({filterCounts.needs})
-                </Button>
+
+                {filter === 'custom' ? (
+                  <div className="basis-full rounded-xl border border-border/60 bg-muted/20 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-foreground">Detailed filters</p>
+                      <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full px-2 text-xs" onClick={clearCustomFilters}>
+                        Uncheck all
+                      </Button>
+                    </div>
+                    <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                      <FilterGroup title="Scan status">
+                        <FilterCheckbox label="Scanned" checked={customFilters.scanned} onChange={() => toggleCustomFilter('scanned')} />
+                        <FilterCheckbox label="Not yet scanned" checked={customFilters.notScanned} onChange={() => toggleCustomFilter('notScanned')} />
+                      </FilterGroup>
+                      <FilterGroup title="Stack & health">
+                        <FilterCheckbox label="npm" checked={customFilters.npm} onChange={() => toggleCustomFilter('npm')} />
+                        <FilterCheckbox label="pnpm" checked={customFilters.pnpm} onChange={() => toggleCustomFilter('pnpm')} />
+                        <FilterCheckbox label="Has package.json" checked={customFilters.hasPackageJson} onChange={() => toggleCustomFilter('hasPackageJson')} />
+                        <FilterCheckbox label="Needs attention" checked={customFilters.needsAttention} onChange={() => toggleCustomFilter('needsAttention')} />
+                      </FilterGroup>
+                      <FilterGroup title="Visibility">
+                        <FilterCheckbox label="Private" checked={customFilters.private} onChange={() => toggleCustomFilter('private')} />
+                        <FilterCheckbox label="Public" checked={customFilters.public} onChange={() => toggleCustomFilter('public')} />
+                      </FilterGroup>
+                      <FilterGroup title="Created year">
+                        {availableYears.map((year) => (
+                          <FilterCheckbox key={year} label={String(year)} checked={customFilters.years.includes(year)} onChange={() => toggleCustomYear(year)} />
+                        ))}
+                      </FilterGroup>
+                    </div>
+                    <p className="mt-3 text-[11px] text-muted-foreground" role="status" aria-live="polite">
+                      Filters update shortly after changes.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="h-px w-full bg-border/50 sm:hidden" />
 
@@ -1003,29 +1081,6 @@ export function RepoHealthSetup() {
                   </Select>
                 </div>
 
-                <div className="grid w-full gap-1.5 sm:w-auto sm:grid-cols-[auto_1fr] sm:items-center sm:gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-1">
-                    From year
-                  </span>
-                  <Select
-                    value={String(minimumYear)}
-                    onValueChange={(value) => setMinimumYear(Number(value))}
-                  >
-                    <SelectTrigger className="h-8 w-full rounded-full text-xs sm:w-28" size="sm">
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from(
-                        { length: Math.max(1, currentYear - oldestCreatedYear + 1) },
-                        (_, index) => currentYear - index
-                      ).map((year) => (
-                        <SelectItem key={year} value={String(year)}>
-                          {year}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
             </div>
           </div>

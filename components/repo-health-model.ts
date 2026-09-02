@@ -3,8 +3,8 @@ export type LatestCommitBuildStatus = 'passing' | 'failing'
 export type LatestDeploymentStatus = 'deployed' | 'not-deployed'
 export type ConnectionStatus = 'connected' | 'invalid' | 'rate-limited'
 export type PackageManager = 'npm' | 'pnpm'
-export type DashboardFilter = 'all' | 'needs-attention' | 'has-package-json' | PackageManager
-export type SortOption = 'alphabetical' | 'created-desc' | 'updated-desc'
+export type DashboardFilter = 'all' | 'custom'
+export type SortOption = 'alphabetical' | 'updated-desc' | 'created-asc' | 'created-desc'
 
 export type ConnectionState = {
   status: ConnectionStatus
@@ -91,8 +91,9 @@ export const MAX_SCAN_SELECTION = 10
 
 export const sortOptions: Array<{ value: SortOption; label: string }> = [
   { value: 'alphabetical', label: 'Alphabetical' },
-  { value: 'created-desc', label: 'Created date' },
   { value: 'updated-desc', label: 'Updated date' },
+  { value: 'created-asc', label: 'Created date (ascending)' },
+  { value: 'created-desc', label: 'Created date (descending)' },
 ]
 
 export const checklistLabels: Record<string, string> = {
