@@ -250,10 +250,10 @@ describe('RepoHealthSetup', () => {
     render(<RepoHealthSetup />)
 
     expect(await screen.findByText('repo-1')).toBeInTheDocument()
-    expect(screen.getByText('Selected: 0/10')).toBeInTheDocument()
+    expect(screen.getByText('Selected: 0/12')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select last 10' }))
-    expect(screen.getByText('Selected: 10/10')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Select 10' }))
+    expect(screen.getByText('Selected: 10/12')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Scan selected' }))
 

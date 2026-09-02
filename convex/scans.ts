@@ -508,10 +508,6 @@ export const triggerScanAll = mutation({
       return { ok: false, message: 'GitHub connection is not valid' } as const
     }
 
-    if ((args.repositoryIds?.length ?? 0) > 10) {
-      return { ok: false, message: 'Select at most 10 repositories per scan' } as const
-    }
-
     if ((args.repositoryIds?.length ?? 0) === 0) {
       return { ok: false, message: 'Select repositories to scan (max 10)' } as const
     }
@@ -757,10 +753,6 @@ export const scanAllRepositories = action({
     const connectionToken = resolveGitHubToken(connection)
     if (!connectionToken) {
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
-    }
-
-    if ((args.repositoryIds?.length ?? 0) > 10) {
-      return { ok: false, message: 'Select at most 10 repositories per scan' } as const
     }
 
     const scanRunId = await ctx.runMutation(api.scans.createScanRun, {

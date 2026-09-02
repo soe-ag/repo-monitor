@@ -247,14 +247,6 @@ export function RepoHealthSetup() {
     })
   }, [filteredRepositories, sortBy])
 
-  const lastUpdatedSortedRepositories = useMemo(() => {
-    return [...repositories].sort((a, b) => {
-      const aUpdated = a.githubUpdatedAt ?? a.pushedAt ?? a.lastScanAt ?? 0
-      const bUpdated = b.githubUpdatedAt ?? b.pushedAt ?? b.lastScanAt ?? 0
-      return bUpdated - aUpdated
-    })
-  }, [repositories])
-
   const checklistStats = useMemo(() => {
     const scannedRepositories = repositories.filter((repository) => Boolean(repository.lastScanAt))
     const failed = scannedRepositories.filter(hasRequiredChecklistAttention).length
@@ -376,7 +368,7 @@ export function RepoHealthSetup() {
       setSelectedRepositoryIds((previous) => {
         const existingIds = new Set(payload.map((repository) => repository._id))
         const filteredPrevious = previous.filter((repositoryId) => existingIds.has(repositoryId))
-        return filteredPrevious.slice(0, MAX_SCAN_SELECTION)
+        return filteredPrevious
       })
     }
     setLoadingState((prev) => ({ ...prev, loadingRepositories: false }))
@@ -425,7 +417,7 @@ export function RepoHealthSetup() {
     const maxAttempts = 120
     const isSingleScan = Boolean(targetRepositoryId)
     const selectedSet = new Set(repositoryIds ?? [])
-    const selectedIds = repositoryIds?.slice(0, MAX_SCAN_SELECTION) ?? []
+    const selectedIds = repositoryIds ?? []
 
     const stopPolling = () => {
       stopped = true
@@ -510,7 +502,7 @@ export function RepoHealthSetup() {
 
         const hasCompleted = isSingleScan
           ? processedCount === 1
-          : processedCount >= Math.min(repositoryIds?.length ?? 0, MAX_SCAN_SELECTION)
+          : processedCount >= (repositoryIds?.length ?? 0)
 
         if (hasCompleted || attempts >= maxAttempts) {
           stopPolling()
@@ -554,19 +546,19 @@ export function RepoHealthSetup() {
   }
 
   function selectLastTenRepositories() {
-    const nextIds = lastUpdatedSortedRepositories
+    const nextIds = sortedRepositories
       .slice(0, MAX_SCAN_SELECTION)
       .map((repository) => repository._id)
     setSelectedRepositoryIds(nextIds)
     setMessage(
       nextIds.length > 0
-        ? `Selected last ${nextIds.length} repositories for Scan all.`
+        ? `Selected ${nextIds.length} repositories for scanning.`
         : 'No repositories available to select.'
     )
   }
 
   function selectAllRepositories() {
-    const nextIds = lastUpdatedSortedRepositories.slice(0, MAX_SCAN_SELECTION).map((repository) => repository._id)
+    const nextIds = sortedRepositories.map((repository) => repository._id)
     setSelectedRepositoryIds(nextIds)
     setMessage(`Selected ${nextIds.length} repositories for scanning.`)
   }
@@ -583,11 +575,6 @@ export function RepoHealthSetup() {
       }
 
       if (previous.includes(repositoryId)) {
-        return previous
-      }
-
-      if (previous.length >= MAX_SCAN_SELECTION) {
-        setMessage('You can select at most 10 repositories per Scan all run.')
         return previous
       }
 
@@ -624,7 +611,7 @@ export function RepoHealthSetup() {
   }
 
   async function triggerScanAll() {
-    const selectedForScan = selectedRepositoryIds.slice(0, MAX_SCAN_SELECTION)
+    const selectedForScan = selectedRepositoryIds
     if (selectedForScan.length === 0) {
       setMessage('Select up to 10 repositories before running Scan all.')
       return
@@ -906,7 +893,7 @@ export function RepoHealthSetup() {
             <CardContent className="space-y-3 px-5 pb-1">
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
-                  Selected: {selectedRepositoryIds.length}/{MAX_SCAN_SELECTION}
+                  Selected: {selectedRepositoryIds.length}/{repositories.length}
                 </span>
                 <span className="w-full rounded-full border border-border/70 bg-background/90 px-3 py-1 font-medium sm:w-auto">
                   Last run:{' '}
@@ -938,7 +925,10 @@ export function RepoHealthSetup() {
                   >
                     {loadingState.scanningAll
                       ? 'Queueing...'
-                      : selectedRepositoryIds.length === repositories.length && repositories.length > 0
+                      : sortedRepositories.length > 0 &&
+                          sortedRepositories.every((repository) =>
+                            selectedRepositoryIds.includes(repository._id)
+                          )
                         ? 'Scan all'
                         : 'Scan selected'}
                   </Button>
@@ -948,7 +938,7 @@ export function RepoHealthSetup() {
                     variant="outline"
                     className="h-8 w-full rounded-full px-4 text-xs sm:w-auto"
                     onClick={selectAllRepositories}
-                    disabled={repositories.length === 0 || selectedRepositoryIds.length >= MAX_SCAN_SELECTION}
+                    disabled={sortedRepositories.length === 0}
                   >
                     Select all
                   </Button>
@@ -960,7 +950,7 @@ export function RepoHealthSetup() {
                     onClick={selectLastTenRepositories}
                     disabled={repositories.length === 0}
                   >
-                    Select last 10
+                    Select 10
                   </Button>
                   <Button
                     type="button"
@@ -1004,6 +994,9 @@ export function RepoHealthSetup() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Choose which repositories to show in the card grid.
+                </p>
+                <p className="text-xs font-medium text-foreground" aria-live="polite">
+                  Showing {sortedRepositories.length} of {repositories.length} repositories
                 </p>
               </div>
               <div className="grid w-full gap-1.5 rounded-2xl border border-border/60 bg-background/90 p-1.5 sm:inline-flex sm:w-auto sm:flex-wrap sm:items-center sm:gap-2">
@@ -1141,10 +1134,6 @@ export function RepoHealthSetup() {
                           checked={selectedRepositoryIds.includes(repository._id)}
                           onChange={(event) =>
                             toggleRepositorySelection(repository._id, event.target.checked)
-                          }
-                          disabled={
-                            !selectedRepositoryIds.includes(repository._id) &&
-                            selectedRepositoryIds.length >= MAX_SCAN_SELECTION
                           }
                           aria-label={`Select ${repository.fullName}`}
                           className="size-4 cursor-pointer rounded border border-border accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"

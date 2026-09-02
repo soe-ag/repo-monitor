@@ -46,10 +46,10 @@ export default function ManualPage() {
         <h2 className="text-xl font-semibold">2. Select Repositories to Scan</h2>
         <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
           <li>Use the checkbox on each repository card to select it.</li>
-          <li>You can select at most 10 repositories per scan run.</li>
           <li>
-            Use <strong className="text-foreground">Select last 10</strong> to quickly pick the 10
-            most recently updated repos.
+            Use <strong className="text-foreground">Select all</strong> to select every repository
+            currently listed, or <strong className="text-foreground">Select 10</strong> to select
+            the first 10 repositories in the current filtered and sorted order.
           </li>
           <li>
             Use <strong className="text-foreground">Unselect all</strong> to clear your selection.

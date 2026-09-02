@@ -41,13 +41,6 @@ export async function POST(request: Request) {
       ? body.repositoryIds.filter((repositoryId) => typeof repositoryId === 'string')
       : []
 
-    if (selectedRepositoryIds.length > 10) {
-      return NextResponse.json(
-        { ok: false, message: 'Select at most 10 repositories per scan.' },
-        { status: 400 }
-      )
-    }
-
     if (body.mode === 'single') {
       if (!body.repositoryId) {
         return NextResponse.json(
