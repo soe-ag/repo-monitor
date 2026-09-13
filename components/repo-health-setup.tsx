@@ -817,23 +817,25 @@ export function RepoHealthSetup() {
                     Connect GitHub to start scanning repositories.
                   </div>
                 )}
-                <Link
-                  href="/manual"
-                  className="inline-flex h-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                >
-                  How scans work <span aria-hidden="true">&rarr;</span>
-                </Link>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 rounded-full px-3 text-xs"
-                  onClick={() => void refreshRepositories()}
-                  disabled={!connectionState?.connected || loadingState.refreshingRepositories}
-                >
-                  <ReloadIcon className={loadingState.refreshingRepositories ? 'animate-spin' : undefined} />
-                  {loadingState.refreshingRepositories ? 'Refreshing...' : 'Refresh repositories'}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Link
+                    href="/manual"
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  >
+                    How scans work <span aria-hidden="true">&rarr;</span>
+                  </Link>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 rounded-full px-3 text-xs"
+                    onClick={() => void refreshRepositories()}
+                    disabled={!connectionState?.connected || loadingState.refreshingRepositories}
+                  >
+                    <ReloadIcon className={loadingState.refreshingRepositories ? 'animate-spin' : undefined} />
+                    {loadingState.refreshingRepositories ? 'Refreshing...' : 'Refresh repositories'}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="relative space-y-3 px-5 pb-1">
@@ -1019,6 +1021,24 @@ export function RepoHealthSetup() {
                   Custom
                 </Button>
 
+                <div className="grid w-full gap-1.5 sm:ml-auto sm:w-auto sm:grid-cols-[auto_1fr] sm:items-center sm:gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-1">
+                    Sort by
+                  </span>
+                  <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                    <SelectTrigger className="h-8 w-full rounded-full text-xs sm:w-40" size="sm">
+                      <SelectValue placeholder="Select sorting" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {filter === 'custom' ? (
                   <div className="basis-full rounded-xl border border-border/60 bg-muted/20 p-3">
                     <div className="flex items-center justify-between gap-3">
@@ -1048,31 +1068,8 @@ export function RepoHealthSetup() {
                         ))}
                       </FilterGroup>
                     </div>
-                    <p className="mt-3 text-[11px] text-muted-foreground" role="status" aria-live="polite">
-                      Filters update shortly after changes.
-                    </p>
                   </div>
                 ) : null}
-
-                <div className="h-px w-full bg-border/50 sm:hidden" />
-
-                <div className="grid w-full gap-1.5 sm:w-auto sm:grid-cols-[auto_1fr] sm:items-center sm:gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:px-1">
-                    Sort by
-                  </span>
-                  <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                    <SelectTrigger className="h-8 w-full rounded-full text-xs sm:w-40" size="sm">
-                      <SelectValue placeholder="Select sorting" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sortOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
 
               </div>
             </div>
