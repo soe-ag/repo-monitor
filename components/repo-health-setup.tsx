@@ -819,6 +819,12 @@ export function RepoHealthSetup() {
                 )}
                 <div className="flex shrink-0 items-center gap-2">
                   <Link
+                    href="/dashboard"
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  >
+                    Summary dashboard
+                  </Link>
+                  <Link
                     href="/manual"
                     className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   >

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getEligiblePackageUpdates,
+  getDashboardSummary,
   getRepositoryDisplayName,
   getRequiredChecklistFailures,
   getStackLogos,
@@ -25,6 +26,39 @@ function makeRepository(overrides: Partial<RepositoryHealthCard> = {}): Reposito
 }
 
 describe('repository health model', () => {
+  it('summarizes the scanned repository fleet', () => {
+    const summary = getDashboardSummary([
+      makeRepository({ lastScanAt: 10 }),
+      makeRepository({
+        _id: 'repo-2',
+        lastScanAt: 10,
+        latestCommitBuildStatus: 'failing',
+        packageFindings: [
+          {
+            _id: 'react',
+            packageName: 'react',
+            currentVersion: '19.0.0',
+            latestVersion: '19.2.0',
+            updateType: 'minor',
+            status: 'warning',
+          },
+        ],
+      }),
+      makeRepository({ _id: 'repo-3' }),
+    ])
+
+    expect(summary).toMatchObject({
+      total: 3,
+      scanned: 2,
+      healthy: 1,
+      needsAttention: 1,
+      unscanned: 1,
+      dependencyUpdates: 1,
+      failingBuilds: 1,
+      healthPercent: 50,
+    })
+  })
+
   it('ignores optional checklist findings when calculating repository health', () => {
     const repository = makeRepository({
       lastScanAt: 10,

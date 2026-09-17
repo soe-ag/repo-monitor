@@ -87,6 +87,18 @@ export type ScanActivity = {
   totalCount?: number
 }
 
+export type DashboardSummary = {
+  total: number
+  scanned: number
+  healthy: number
+  needsAttention: number
+  unscanned: number
+  dependencyUpdates: number
+  failingBuilds: number
+  notDeployed: number
+  healthPercent: number | null
+}
+
 export const MAX_SCAN_SELECTION = 10
 
 export const sortOptions: Array<{ value: SortOption; label: string }> = [
@@ -180,6 +192,27 @@ export function getRequiredChecklistFailures(repository: RepositoryHealthCard) {
 
 export function isRepositoryHealthy(repository: RepositoryHealthCard) {
   return Boolean(repository.lastScanAt) && !hasRequiredChecklistAttention(repository)
+}
+
+export function getDashboardSummary(repositories: RepositoryHealthCard[]): DashboardSummary {
+  const scanned = repositories.filter((repository) => Boolean(repository.lastScanAt))
+  const healthy = scanned.filter(isRepositoryHealthy).length
+  const needsAttention = scanned.filter(hasRequiredChecklistAttention).length
+
+  return {
+    total: repositories.length,
+    scanned: scanned.length,
+    healthy,
+    needsAttention,
+    unscanned: repositories.length - scanned.length,
+    dependencyUpdates: repositories.reduce(
+      (total, repository) => total + getEligiblePackageUpdates(repository).length,
+      0
+    ),
+    failingBuilds: repositories.filter((repository) => repository.latestCommitBuildStatus === 'failing').length,
+    notDeployed: repositories.filter((repository) => repository.latestDeploymentStatus === 'not-deployed').length,
+    healthPercent: scanned.length > 0 ? Math.round((healthy / scanned.length) * 100) : null,
+  }
 }
 
 export function getRepositoryDisplayName(fullName: string) {
