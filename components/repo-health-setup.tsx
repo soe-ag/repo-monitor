@@ -175,6 +175,10 @@ export function RepoHealthSetup() {
     scanningAll: false,
     scanningSingle: '',
   })
+  const isScanBusy =
+    loadingState.scanningAll ||
+    Boolean(loadingState.scanningSingle) ||
+    scanActivity?.status === 'running'
 
   const connectionBadge = useMemo(() => {
     if (!connectionState) {
@@ -714,7 +718,11 @@ export function RepoHealthSetup() {
       >
         Skip to repositories
       </a>
-      <main className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
+      <main
+        className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8"
+        aria-busy={isScanBusy}
+      >
+        <fieldset disabled={isScanBusy} className="contents">
         {message ? (
           <div
             className="rounded-xl border border-border/60 bg-card/90 px-4 py-2 text-sm text-foreground shadow-sm backdrop-blur"
@@ -1344,6 +1352,7 @@ export function RepoHealthSetup() {
             })}
           </div>
         )}
+        </fieldset>
       </main>
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-2xl">
