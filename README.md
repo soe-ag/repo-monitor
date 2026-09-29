@@ -1,120 +1,95 @@
 # Repo Monitor
 
-Repo Monitor is a Next.js and Convex dashboard for reviewing the health of GitHub repositories in one place. Connect a GitHub personal access token, sync accessible repositories, and scan up to 10 repositories at a time.
+Repo Monitor is a GitHub repository health dashboard built with Next.js 16 and Convex. Connect a GitHub personal access token (PAT), refresh the repositories it can access, and run scans from the dashboard.
 
-## Features
+## What it checks
 
-- Sync public and private repositories available to the connected GitHub account.
-- Refresh the stored repository list from GitHub on demand without reconnecting the token.
-- Show the last completed build result as `Build passed` or `Build failed`.
-- Detect active GitHub-integrated deployments and show `Deployed` or `Not deployed`, including the environment and deployment link when available.
-- Display build and deployment information in one compact row, for example:
+- **Dependencies:** Reads `dependencies` and `devDependencies` from each repository's root `package.json`, then compares up to 300 packages with the npm registry. Findings classify available updates as patch, minor, or major. The package update policy can be set to any newer version, minor or major updates, or major updates only.
+- **Repository practices:** Checks for a test script, GitHub Actions workflow, README and its freshness, and Dependabot configuration. A README is considered stale when its last commit was more than six months ago.
+- **Security alerts:** Reports open GitHub Dependabot alerts when the token and repository expose them. If the data is unavailable, the finding is marked unknown.
+- **Builds and deployments:** Shows the latest completed result GitHub exposes for the default branch, and active successful GitHub-integrated deployments. Indicators may be absent when GitHub has no data or the token cannot read it.
 
-  ```text
-  Build passed / Deployed (Production)
-  ```
-
-- Check dependencies from `package.json` against the npm registry.
-- Evaluate repository health checks for tests, GitHub Actions workflows, README presence and freshness, Dependabot configuration, and security alerts.
-- Filter repositories that need attention and inspect detailed findings.
-- Run single-repository, selected-repository, and weekly scheduled scans.
-- Preserve partial scan results when one repository or external API request fails.
-
-## Build and deployment status
-
-Build status comes from GitHub check runs and commit statuses for the latest commit on the repository's default branch.
-
-- Only completed results are displayed.
-- If the newest build is still running, the previous completed pass/fail result remains visible.
-- If GitHub does not expose build information, no build label is shown.
-
-Deployment status comes from GitHub deployment records and their latest statuses.
-
-- `Deployed` means GitHub reports at least one active successful, non-transient deployment.
-- `Not deployed` is shown only when GitHub provides enough deployment history to determine that no active deployment exists.
-- A failed newer deployment does not hide an older successful deployment that remains active.
-- If the repository is deployed outside GitHub's deployment integrations, or the token cannot read deployment data, no deployment label is shown.
+Scans can target one repository, selected repositories, or all repositories. You can filter results and open repository details from the dashboard. Weekly scheduled scans run through Convex cron jobs. If an API request fails, the scan preserves available results and reports partial or failed status.
 
 ## Getting started
 
 ### Requirements
 
-- Node.js compatible with the versions declared by the installed packages
+- Node.js supported by the installed dependencies
 - npm
-- A Convex project
-- A GitHub personal access token
+- A Convex account and development deployment
+- A GitHub PAT with access to the repositories you want to monitor
 
-### Install and run
+### Configure and run locally
+
+Create `.env.local` in the project root and set the Convex deployment URL:
+
+```bash
+NEXT_PUBLIC_CONVEX_URL=https://<your-deployment>.convex.cloud
+```
+
+The Next.js API routes can use a Convex admin key when required by your deployment configuration:
+
+```bash
+CONVEX_ADMIN_KEY=<your-convex-admin-key>
+```
+
+Install packages and start the frontend and Convex development server:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), enter a GitHub PAT, sync repositories, select up to 10 repositories, and start a scan.
+Open [http://localhost:3000](http://localhost:3000), connect your PAT, and scan repositories. The in-app guide is available at `/manual`.
 
-### Environment variables
+The GitHub token is submitted to the backend and stored by Convex. Keep `.env.local`, Convex admin keys, and PATs private; environment files are ignored by Git.
 
-Create `.env.local` with your Convex deployment URL:
+## GitHub access
 
-```bash
-NEXT_PUBLIC_CONVEX_URL=https://<your-deployment>.convex.cloud
-```
+The PAT needs permission to read the repositories you want to monitor. Access to checks, commit statuses, deployments, and Dependabot alerts depends on the token's permissions and the repository's settings. When optional GitHub data is unavailable, Repo Monitor reports it as unknown or leaves its indicator blank rather than treating it as a failure.
 
-The server-side API routes can optionally use a Convex admin key:
+## Commands
 
 ```bash
-CONVEX_ADMIN_KEY=<your-convex-admin-key>
-```
-
-Do not commit `.env.local` or your GitHub token.
-
-## GitHub token access
-
-The token must be able to read every repository you want to monitor. Private repositories require repository read access. Build and deployment indicators also require access to GitHub checks, commit statuses, and deployments.
-
-If a token lacks access to optional data, Repo Monitor leaves the corresponding indicator blank instead of treating the repository as failed or undeployed.
-
-## Available commands
-
-```bash
-npm run dev        # Start Next.js and Convex development servers
+npm run dev        # Start the frontend and Convex development server
+npm run dev:frontend # Start only the Next.js frontend
+npm run dev:backend  # Start only the Convex development server
 npm run mcp        # Start the local read-only MCP server over stdio
 npm run build      # Create a production Next.js build
+npm run start      # Serve the production build
 npm run lint       # Run ESLint
 npm run typecheck  # Run TypeScript without emitting files
 npm test           # Run the Vitest suite once
 npm run test:watch # Run Vitest in watch mode
 ```
 
-## Local MCP server
+## MCP server
 
-Repo Monitor provides a read-only MCP server over stdio.
-It exposes four tools: repository listing, health lookup, attention items,
-and connection status. It reads Convex data and never returns credentials.
+The local read-only MCP server exposes four tools: `list_repositories`, `get_repository_health`, `list_attention_items`, and `get_connection_status`. It reads the default Repo Monitor connection from Convex and does not return credentials.
+
+Set `NEXT_PUBLIC_CONVEX_URL` before starting it:
 
 ```bash
 NEXT_PUBLIC_CONVEX_URL=https://<your-deployment>.convex.cloud npm run mcp
 ```
 
-Use `MCP_CONNECTION_KEY` to override the default connection and launch
-`npx @modelcontextprotocol/inspector npm run mcp` for interactive testing.
+The connection key defaults to `default`; set `MCP_CONNECTION_KEY` to read a different connection. To inspect the server interactively, run `npx @modelcontextprotocol/inspector npm run mcp` with the same environment configured.
 
-## Architecture
+## Project layout
 
-- `app/` contains the Next.js App Router pages and API routes.
-- `components/` contains the interactive dashboard UI.
-- `convex/` contains the schema, GitHub scanning actions, persistence functions, tests, and weekly cron configuration.
-- `app/manual/` contains the in-app usage guide.
-
-Scan results are stored in Convex and streamed back to the dashboard. GitHub and npm requests run on the backend so access tokens are not exposed to the browser.
+- `app/` contains the dashboard, manual, shared layout, and API routes.
+- `components/` contains the dashboard and reusable UI components.
+- `convex/` contains the database schema, GitHub integration and scans, scheduled jobs, and backend tests.
+- `mcp/` contains the read-only MCP server and its Convex data source.
+- `docs/` contains project learning notes and architecture decisions.
 
 ## Deployment
+
+Deploy the Convex backend to the target environment and set `NEXT_PUBLIC_CONVEX_URL` for the Next.js host. Deploy the Next.js app to Vercel or another host that supports Next.js 16. Convex scheduled scans run when the deployed backend's cron job is active.
 
 Build the frontend with:
 
 ```bash
 npm run build
 ```
-
-Deploy the Convex backend for the target environment and configure `NEXT_PUBLIC_CONVEX_URL` in the frontend host. The Next.js application can be hosted on Vercel or another platform that supports Next.js 16.
