@@ -177,8 +177,7 @@ export function RepoHealthSetup() {
   })
   const isScanBusy =
     loadingState.scanningAll ||
-    Boolean(loadingState.scanningSingle) ||
-    scanActivity?.status === 'running'
+    Boolean(loadingState.scanningSingle)
 
   const connectionBadge = useMemo(() => {
     if (!connectionState) {
@@ -623,15 +622,18 @@ export function RepoHealthSetup() {
 
     setLoadingState((prev) => ({ ...prev, scanningAll: true }))
     setMessage(null)
-    const response = await fetch('/api/scans', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'all', repositoryIds: selectedForScan }),
-    })
-    const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
-    if ('error' in payload || !payload.ok) {
-      setMessage('Failed to trigger scan all for selected repositories')
-    } else {
+    try {
+      const response = await fetch('/api/scans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'all', repositoryIds: selectedForScan }),
+      })
+      const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
+      if ('error' in payload || !payload.ok) {
+        setMessage('Failed to trigger scan all for selected repositories')
+        return
+      }
+
       const firstSelectedRepository = repositories.find(
         (repository) => repository._id === selectedForScan[0]
       )
@@ -649,28 +651,34 @@ export function RepoHealthSetup() {
         currentRepositoryName: firstSelectedName,
       })
       void pollQueuedScans(undefined, selectedForScan)
+    } finally {
+      setLoadingState((prev) => ({ ...prev, scanningAll: false }))
     }
-    setLoadingState((prev) => ({ ...prev, scanningAll: false }))
   }
 
   async function triggerScanSingle(repositoryId: string) {
     setLoadingState((prev) => ({ ...prev, scanningSingle: repositoryId }))
     setMessage(null)
-    const targetRepository = repositories.find((repository) => repository._id === repositoryId)
-    const repositoryName = targetRepository
-      ? getRepositoryDisplayName(targetRepository.fullName)
-      : 'selected repository'
-    const response = await fetch('/api/scans', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'single', repositoryId }),
-    })
-    const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
-    if ('error' in payload) {
-      setMessage(payload.error ?? 'Failed to trigger repository scan')
-    } else if (!payload.ok) {
-      setMessage(payload.message ?? 'Failed to trigger repository scan')
-    } else {
+    try {
+      const targetRepository = repositories.find((repository) => repository._id === repositoryId)
+      const repositoryName = targetRepository
+        ? getRepositoryDisplayName(targetRepository.fullName)
+        : 'selected repository'
+      const response = await fetch('/api/scans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'single', repositoryId }),
+      })
+      const payload = (await response.json()) as { ok: boolean; message?: string } | { error: string }
+      if ('error' in payload) {
+        setMessage(payload.error ?? 'Failed to trigger repository scan')
+        return
+      }
+      if (!payload.ok) {
+        setMessage(payload.message ?? 'Failed to trigger repository scan')
+        return
+      }
+
       setMessage(`Repository scan started for ${repositoryName}. Watching updates...`)
       setScanActivity({
         mode: 'single',
@@ -683,8 +691,9 @@ export function RepoHealthSetup() {
         totalCount: 1,
       })
       void pollQueuedScans(repositoryId)
+    } finally {
+      setLoadingState((prev) => ({ ...prev, scanningSingle: '' }))
     }
-    setLoadingState((prev) => ({ ...prev, scanningSingle: '' }))
   }
 
   async function deletePatConnection() {
@@ -720,7 +729,7 @@ export function RepoHealthSetup() {
       </a>
       <main
         className="mx-auto flex w-full max-w-8xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 sm:py-7 lg:px-8"
-        aria-busy={isScanBusy}
+        aria-busy={isScanBusy || scanActivity?.status === 'running'}
       >
         <fieldset disabled={isScanBusy} className="contents">
         {message ? (
@@ -828,13 +837,13 @@ export function RepoHealthSetup() {
                 <div className="flex shrink-0 items-center gap-2">
                   <Link
                     href="/dashboard"
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-background"
                   >
                     Summary dashboard
                   </Link>
                   <Link
                     href="/manual"
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-background"
                   >
                     How scans work <span aria-hidden="true">&rarr;</span>
                   </Link>
@@ -1147,7 +1156,7 @@ export function RepoHealthSetup() {
                             toggleRepositorySelection(repository._id, event.target.checked)
                           }
                           aria-label={`Select ${repository.fullName}`}
-                          className="size-4 cursor-pointer rounded border border-border accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="size-4 cursor-pointer rounded border border-border accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed"
                         />
                       </label>
                       <span className="line-clamp-1">
