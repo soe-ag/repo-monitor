@@ -244,8 +244,8 @@ export function RepoHealthSetup() {
       })
     }
     return list.sort((a, b) => {
-      const aUpdated = a.githubUpdatedAt ?? a.pushedAt ?? a.lastScanAt ?? 0
-      const bUpdated = b.githubUpdatedAt ?? b.pushedAt ?? b.lastScanAt ?? 0
+      const aUpdated = a.pushedAt ?? a.githubUpdatedAt ?? a.lastScanAt ?? 0
+      const bUpdated = b.pushedAt ?? b.githubUpdatedAt ?? b.lastScanAt ?? 0
       return bUpdated - aUpdated
     })
   }, [filteredRepositories, sortBy])
@@ -417,7 +417,10 @@ export function RepoHealthSetup() {
     const pollStartedAt = Date.now()
     let attempts = 0
     let stopped = false
-    const maxAttempts = 120
+    // A repository scan is capped at 10 seconds. Give the backend a small
+    // margin to persist its result, then stop presenting an unresponsive run
+    // as active (for example, after a Convex memory-limit termination).
+    const maxAttempts = 5
     const isSingleScan = Boolean(targetRepositoryId)
     const selectedSet = new Set(repositoryIds ?? [])
     const selectedIds = repositoryIds ?? []
@@ -999,7 +1002,7 @@ export function RepoHealthSetup() {
                       : `Running - ${scanActivity.currentRepositoryName ?? scanActivity.repositoryName ?? 'selected repository'} (${scanActivity.processedCount ?? 0}/${scanActivity.totalCount ?? 1})`
                     : scanActivity.status === 'completed'
                       ? 'completed'
-                      : 'timed out'}
+                      : 'stopped waiting for scan result'}
                   {scanActivity.lastCheckedAt
                     ? ` - last checked ${new Date(scanActivity.lastCheckedAt).toLocaleTimeString('en-US')}`
                     : ''}
@@ -1297,8 +1300,8 @@ export function RepoHealthSetup() {
                           {' - '}
                           Updated{' '}
                           {new Date(
-                            repository.githubUpdatedAt ??
-                              repository.pushedAt ??
+                            repository.pushedAt ??
+                              repository.githubUpdatedAt ??
                               repository.lastScanAt ??
                               repository._creationTime
                           ).toLocaleDateString('en-US')}

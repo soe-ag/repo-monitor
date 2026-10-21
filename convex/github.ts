@@ -11,6 +11,7 @@ type FetchJsonOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   token: string
   body?: string
+  signal?: AbortSignal
 }
 
 export type LatestCommitBuildStatus = 'passing' | 'failing'
@@ -69,6 +70,7 @@ export async function fetchGitHubJson<T>(path: string, options: FetchJsonOptions
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: options.body,
+    signal: options.signal,
   })
 
   if (!response.ok) {
@@ -307,12 +309,13 @@ export function statusForPackageUpdate(
   return updateType === 'major' || updateType === 'minor' ? 'warning' : 'ok'
 }
 
-export async function fetchNpmLatestVersion(packageName: string): Promise<{
+export async function fetchNpmLatestVersion(packageName: string, signal?: AbortSignal): Promise<{
   version: string
   publishedAt?: number
 } | null> {
   const encodedPackage = encodeURIComponent(packageName)
   const response = await fetch(`${NPM_REGISTRY_BASE}/${encodedPackage}`, {
+    signal,
     headers: {
       Accept: 'application/vnd.npm.install-v1+json',
     },

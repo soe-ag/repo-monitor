@@ -77,8 +77,11 @@ type LatestDeployment = {
   detail: string
 }
 
-const MAX_DEPENDENCIES_TO_SCAN = 300
+// Keep the parsed registry metadata and finding payload small enough for the
+// Convex action memory limit, especially for repositories with large manifests.
+const MAX_DEPENDENCIES_TO_SCAN = 50
 const MAX_DEPLOYMENTS_TO_CHECK = 10
+const REPOSITORY_SCAN_TIMEOUT_MS = 10_000
 
 export const listRepositories = query({
   args: {
@@ -646,25 +649,32 @@ export const scanSingleRepository = action({
     }
 
     try {
-      await runRepositoryScan(ctx, {
-        connectionToken,
-        packagePolicy: connection.packagePolicy,
-        repository: {
-          id: target.githubId,
-          name: target.name,
-          full_name: target.fullName,
-          owner: { login: target.owner },
-          private: target.visibility === 'private',
-          html_url: target.htmlUrl,
-          language: target.primaryLanguage,
-          default_branch: target.defaultBranch,
-          created_at: target.githubCreatedAt ? new Date(target.githubCreatedAt).toISOString() : '',
-          updated_at: target.githubUpdatedAt ? new Date(target.githubUpdatedAt).toISOString() : '',
-          pushed_at: target.pushedAt ? new Date(target.pushedAt).toISOString() : '',
-        },
-        repositoryId: target._id,
-        scanRunId,
-      })
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), REPOSITORY_SCAN_TIMEOUT_MS)
+      try {
+        await runRepositoryScan(ctx, {
+          connectionToken,
+          packagePolicy: connection.packagePolicy,
+          repository: {
+            id: target.githubId,
+            name: target.name,
+            full_name: target.fullName,
+            owner: { login: target.owner },
+            private: target.visibility === 'private',
+            html_url: target.htmlUrl,
+            language: target.primaryLanguage,
+            default_branch: target.defaultBranch,
+            created_at: target.githubCreatedAt ? new Date(target.githubCreatedAt).toISOString() : '',
+            updated_at: target.githubUpdatedAt ? new Date(target.githubUpdatedAt).toISOString() : '',
+            pushed_at: target.pushedAt ? new Date(target.pushedAt).toISOString() : '',
+          },
+          repositoryId: target._id,
+          scanRunId,
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeout)
+      }
 
       await ctx.runMutation(api.scans.finalizeScanRun, {
         scanRunId,
@@ -830,13 +840,20 @@ export const scanAllRepositories = action({
         }
 
         try {
-          await runRepositoryScan(ctx, {
-            connectionToken,
-            packagePolicy: connection.packagePolicy,
-            repository: repo,
-            repositoryId,
-            scanRunId,
-          })
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), REPOSITORY_SCAN_TIMEOUT_MS)
+          try {
+            await runRepositoryScan(ctx, {
+              connectionToken,
+              packagePolicy: connection.packagePolicy,
+              repository: repo,
+              repositoryId,
+              scanRunId,
+              signal: controller.signal,
+            })
+          } finally {
+            clearTimeout(timeout)
+          }
           successCount += 1
         } catch (error) {
           failedCount += 1
@@ -930,25 +947,29 @@ async function runRepositoryScan(
     repository: GitHubRepository
     repositoryId: Id<'repositories'>
     scanRunId: Id<'scanRuns'>
+    signal: AbortSignal
   }
 ) {
+  const { signal } = args
   const [latestCommitBuild, latestDeployment, packageJsonResult] = await Promise.all([
-    fetchLatestCommitBuild(args.connectionToken, args.repository),
-    fetchLatestDeployment(args.connectionToken, args.repository),
-    fetchPackageJson(args.connectionToken, args.repository),
+    fetchLatestCommitBuild(args.connectionToken, args.repository, signal),
+    fetchLatestDeployment(args.connectionToken, args.repository, signal),
+    fetchPackageJson(args.connectionToken, args.repository, signal),
   ])
   let dependencyCapDetail: string | null = null
   const packageManagerPromise: Promise<PackageManager | undefined> = packageJsonResult.ok
     ? detectPackageManager(
         args.connectionToken,
         args.repository,
-        packageJsonResult.packageJson.packageManager
+        packageJsonResult.packageJson.packageManager,
+        signal
       )
     : Promise.resolve(undefined)
   const checklistPromise = evaluateChecklist(
     args.connectionToken,
     args.repository,
-    packageJsonResult.ok ? packageJsonResult.packageJson : null
+    packageJsonResult.ok ? packageJsonResult.packageJson : null,
+    signal
   )
 
   const packageFindings: PackageFinding[] = []
@@ -962,7 +983,8 @@ async function runRepositoryScan(
     const dependenciesToScan = dependencyEntries.slice(0, MAX_DEPENDENCIES_TO_SCAN)
 
     for (const [packageName, currentVersion] of dependenciesToScan) {
-      const npmLatest = await fetchNpmLatestVersion(packageName)
+      if (signal.aborted) throw new Error('Repository scan exceeded 10 seconds')
+      const npmLatest = await fetchNpmLatestVersion(packageName, signal)
       const latestVersion = npmLatest?.version ?? currentVersion
       const updateType = npmLatest
         ? classifyVersionUpdate(currentVersion, npmLatest.version)
@@ -1000,6 +1022,7 @@ async function runRepositoryScan(
 
   const [checklistFindings, packageManager]: [ChecklistFinding[], PackageManager | undefined] =
     await Promise.all([checklistPromise, packageManagerPromise])
+  if (signal.aborted) throw new Error('Repository scan exceeded 10 seconds')
   if (dependencyCapDetail) {
     checklistFindings.push({
       checkKey: 'dependency-scan-cap',
@@ -1032,12 +1055,13 @@ async function runRepositoryScan(
 
 async function fetchLatestDeployment(
   token: string,
-  repository: GitHubRepository
+  repository: GitHubRepository,
+  signal: AbortSignal
 ): Promise<LatestDeployment | null> {
   try {
     const deployments = await fetchGitHubJson<GitHubDeployment[]>(
       `/repos/${repository.owner.login}/${repository.name}/deployments?per_page=${MAX_DEPLOYMENTS_TO_CHECK}`,
-      { token }
+      { token, signal }
     )
     const persistentDeployments = deployments
       .filter((deployment) => !deployment.transient_environment)
@@ -1047,7 +1071,7 @@ async function fetchLatestDeployment(
       persistentDeployments.map(async (deployment) => {
         const statuses = await fetchGitHubJson<GitHubDeploymentStatus[]>(
           `/repos/${repository.owner.login}/${repository.name}/deployments/${deployment.id}/statuses?per_page=100`,
-          { token }
+          { token, signal }
         )
         const latestStatus = statuses.sort(
           (left, right) => Date.parse(right.created_at ?? '') - Date.parse(left.created_at ?? '')
@@ -1070,25 +1094,26 @@ async function fetchLatestDeployment(
 
 async function fetchLatestCommitBuild(
   token: string,
-  repository: GitHubRepository
+  repository: GitHubRepository,
+  signal: AbortSignal
 ): Promise<LatestCommitBuild | null> {
   try {
     const commit = await fetchGitHubJson<{ sha: string; html_url?: string }>(
       `/repos/${repository.owner.login}/${repository.name}/commits/${encodeURIComponent(
         repository.default_branch
       )}`,
-      { token }
+      { token, signal }
     )
     const [checkRunsResult, commitStatusResult] = await Promise.allSettled([
       fetchGitHubJson<{
         check_runs: Array<{ status: string; conclusion?: string | null }>
       }>(
         `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/check-runs?per_page=100`,
-        { token }
+        { token, signal }
       ),
       fetchGitHubJson<{ state?: string }>(
         `/repos/${repository.owner.login}/${repository.name}/commits/${commit.sha}/status`,
-        { token }
+        { token, signal }
       ),
     ])
 
@@ -1114,11 +1139,12 @@ async function fetchLatestCommitBuild(
   }
 }
 
-async function fetchPackageJson(token: string, repository: GitHubRepository) {
+async function fetchPackageJson(token: string, repository: GitHubRepository, signal: AbortSignal) {
   try {
     const response = await fetch(
       `https://api.github.com/repos/${repository.owner.login}/${repository.name}/contents/package.json?ref=${repository.default_branch}`,
       {
+        signal,
         headers: {
           Accept: 'application/vnd.github.raw+json',
           Authorization: `Bearer ${token}`,
@@ -1163,7 +1189,8 @@ async function fetchPackageJson(token: string, repository: GitHubRepository) {
 async function detectPackageManager(
   token: string,
   repository: GitHubRepository,
-  declaredPackageManager: string | undefined
+  declaredPackageManager: string | undefined,
+  signal: AbortSignal
 ): Promise<PackageManager | undefined> {
   const declared = inferPackageManager(declaredPackageManager, [])
   if (declared) {
@@ -1173,7 +1200,7 @@ async function detectPackageManager(
   try {
     const rootContents = await fetchGitHubJson<GitHubContentResponse[]>(
       `/repos/${repository.owner.login}/${repository.name}/contents?ref=${repository.default_branch}`,
-      { token }
+      { token, signal }
     )
     return inferPackageManager(
       declaredPackageManager,
@@ -1189,7 +1216,8 @@ async function evaluateChecklist(
   repository: GitHubRepository,
   packageJson: {
     scripts?: Record<string, string>
-  } | null
+  } | null,
+  signal: AbortSignal
 ): Promise<ChecklistFinding[]> {
   const findings: ChecklistFinding[] = []
 
@@ -1200,7 +1228,8 @@ async function evaluateChecklist(
     repository.owner.login,
     repository.name,
     '.github/workflows',
-    repository.default_branch
+    repository.default_branch,
+    signal
   )
   findings.push({
     checkKey: 'cicd-workflow',
@@ -1213,7 +1242,8 @@ async function evaluateChecklist(
     repository.owner.login,
     repository.name,
     'README.md',
-    repository.default_branch
+    repository.default_branch,
+    signal
   )
   findings.push({
     checkKey: 'readme-exists',
@@ -1226,7 +1256,8 @@ async function evaluateChecklist(
       token,
       repository.owner.login,
       repository.name,
-      'README.md'
+      'README.md',
+      signal
     )
     findings.push(evaluateReadmeFreshness(true, readmeCommitDate))
   } else {
@@ -1239,17 +1270,19 @@ async function evaluateChecklist(
       repository.owner.login,
       repository.name,
       '.github/dependabot.yml',
-      repository.default_branch
+      repository.default_branch,
+      signal
     )) ||
     (await fileExists(
       token,
       repository.owner.login,
       repository.name,
       '.github/dependabot.yaml',
-      repository.default_branch
+      repository.default_branch,
+      signal
     ))
 
-  findings.push(await evaluateSecurityAlerts(token, repository))
+  findings.push(await evaluateSecurityAlerts(token, repository, signal))
 
   findings.push({
     checkKey: 'dependabot-config',
@@ -1262,7 +1295,8 @@ async function evaluateChecklist(
 
 async function evaluateSecurityAlerts(
   token: string,
-  repository: GitHubRepository
+  repository: GitHubRepository,
+  signal: AbortSignal
 ): Promise<ChecklistFinding> {
   try {
     const alerts = await fetchGitHubJson<
@@ -1272,7 +1306,7 @@ async function evaluateSecurityAlerts(
       }>
     >(
       `/repos/${repository.owner.login}/${repository.name}/dependabot/alerts?state=open&per_page=100`,
-      { token }
+      { token, signal }
     )
     const openAlerts = alerts.filter((alert) => alert.state === 'open')
     if (openAlerts.length === 0) {
@@ -1307,12 +1341,13 @@ async function directoryExists(
   owner: string,
   name: string,
   path: string,
-  branch: string
+  branch: string,
+  signal: AbortSignal
 ) {
   try {
     await fetchGitHubJson<GitHubContentResponse[]>(
       `/repos/${owner}/${name}/contents/${path}?ref=${branch}`,
-      { token }
+      { token, signal }
     )
     return true
   } catch (error) {
@@ -1328,12 +1363,13 @@ async function fileExists(
   owner: string,
   name: string,
   path: string,
-  branch: string
+  branch: string,
+  signal: AbortSignal
 ) {
   try {
     await fetchGitHubJson<GitHubContentResponse>(
       `/repos/${owner}/${name}/contents/${path}?ref=${branch}`,
-      { token }
+      { token, signal }
     )
     return true
   } catch (error) {
@@ -1344,12 +1380,19 @@ async function fileExists(
   }
 }
 
-async function getFileLastCommitDate(token: string, owner: string, name: string, path: string) {
+async function getFileLastCommitDate(
+  token: string,
+  owner: string,
+  name: string,
+  path: string,
+  signal: AbortSignal
+) {
   try {
     const commits = await fetchGitHubJson<Array<{ commit?: { committer?: { date?: string } } }>>(
       `/repos/${owner}/${name}/commits?path=${encodeURIComponent(path)}&per_page=1`,
       {
         token,
+        signal,
       }
     )
     const date = commits[0]?.commit?.committer?.date
