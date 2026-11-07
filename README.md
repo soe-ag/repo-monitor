@@ -34,6 +34,14 @@ The Next.js API routes can use a Convex admin key when required by your deployme
 CONVEX_ADMIN_KEY=<your-convex-admin-key>
 ```
 
+GitHub tokens are encrypted (AES-256-GCM) before Convex stores them. Set an encryption key in the Convex deployment environment (not in `.env.local`) before connecting a PAT:
+
+```bash
+npx convex env set TOKEN_ENCRYPTION_KEY "$(openssl rand -base64 32)"
+```
+
+Keep a copy of this key. If it changes or is lost, stored tokens cannot be decrypted and you must reconnect your PAT. Tokens saved before encryption was added keep working and are encrypted the next time the connection is saved or refreshed.
+
 Install packages and start the frontend and Convex development server:
 
 ```bash

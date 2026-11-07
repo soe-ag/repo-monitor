@@ -555,7 +555,7 @@ export const triggerScanSingleRepository = mutation({
       return { ok: false, message: 'GitHub connection is not ready' } as const
     }
 
-    const connectionToken = resolveGitHubToken(connection)
+    const connectionToken = await resolveGitHubToken(connection)
     if (!connectionToken) {
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }
@@ -625,7 +625,7 @@ export const scanSingleRepository = action({
       return { ok: false, message: repositoryError } as const
     }
 
-    const connectionToken = resolveGitHubToken(connection)
+    const connectionToken = await resolveGitHubToken(connection)
     if (!connectionToken) {
       const repositoryError = 'OAuth token source is not implemented yet'
       await ctx.runMutation(api.scans.saveRepositoryScanResult, {
@@ -725,7 +725,7 @@ export const refreshRepositories = action({
       return { ok: false, message: 'Connection not healthy' }
     }
 
-    const connectionToken = resolveGitHubToken(connection)
+    const connectionToken = await resolveGitHubToken(connection)
     if (!connectionToken) {
       return { ok: false, message: 'OAuth token source is not implemented yet' }
     }
@@ -760,7 +760,7 @@ export const scanAllRepositories = action({
     if (connection.status !== 'connected') {
       return { ok: false, message: 'Connection not healthy' } as const
     }
-    const connectionToken = resolveGitHubToken(connection)
+    const connectionToken = await resolveGitHubToken(connection)
     if (!connectionToken) {
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }

@@ -1,6 +1,7 @@
 import { anyApi } from 'convex/server'
 import { NextResponse } from 'next/server'
 import { DEFAULT_CONNECTION_KEY } from '@/convex/constants'
+import { handleRouteError } from '@/lib/apiRoute'
 import { getConvexHttpClient } from '@/lib/convexHttp'
 
 export async function PUT() {
@@ -11,9 +12,6 @@ export async function PUT() {
     })
     return NextResponse.json(result, { status: result.ok ? 200 : 400 })
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'PUT /api/repositories')
   }
 }

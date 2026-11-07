@@ -2,6 +2,9 @@
   "name": "repo-monitor",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.22.2"
+  },
   "scripts": {
     "dev": "npm-run-all --parallel dev:frontend dev:backend",
     "build": "next build",
@@ -44,7 +47,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.3",
-    "eslint": "^10.9.1",
+    "eslint": "^9.39.5",
     "eslint-config-next": "16.2.10",
     "jsdom": "^30.0.1",
     "npm-run-all2": "^9.0.2",

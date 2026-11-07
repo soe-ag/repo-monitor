@@ -1,6 +1,8 @@
 import { anyApi } from 'convex/server'
 import { NextResponse } from 'next/server'
 import { DEFAULT_CONNECTION_KEY } from '@/convex/constants'
+import { handleRouteError, parseJsonBody } from '@/lib/apiRoute'
+import { connectBodySchema, packagePolicyBodySchema } from '@/lib/apiSchemas'
 import { getConvexHttpClient } from '@/lib/convexHttp'
 
 export async function GET() {
@@ -11,59 +13,40 @@ export async function GET() {
     })
     return NextResponse.json(state)
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'GET /api/github-connection')
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      pat?: string
-      packagePolicy?: 'any-newer' | 'minor-or-major' | 'major-only'
-    }
-
-    if (!body.pat) {
-      return NextResponse.json({ error: 'PAT is required' }, { status: 400 })
-    }
+    const body = await parseJsonBody(request, connectBodySchema)
+    if (!body.ok) return body.response
 
     const client = getConvexHttpClient()
     const result = await client.action(anyApi.githubConnections.connectWithPat, {
-      pat: body.pat,
+      pat: body.data.pat,
       connectionKey: DEFAULT_CONNECTION_KEY,
-      packagePolicy: body.packagePolicy,
+      packagePolicy: body.data.packagePolicy,
     })
     return NextResponse.json(result)
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'POST /api/github-connection')
   }
 }
 
 export async function PATCH(request: Request) {
   try {
-    const body = (await request.json()) as {
-      packagePolicy?: 'any-newer' | 'minor-or-major' | 'major-only'
-    }
-    if (!body.packagePolicy) {
-      return NextResponse.json({ error: 'packagePolicy is required' }, { status: 400 })
-    }
+    const body = await parseJsonBody(request, packagePolicyBodySchema)
+    if (!body.ok) return body.response
 
     const client = getConvexHttpClient()
     const result = await client.mutation(anyApi.githubConnections.updatePackagePolicy, {
       connectionKey: DEFAULT_CONNECTION_KEY,
-      packagePolicy: body.packagePolicy,
+      packagePolicy: body.data.packagePolicy,
     })
     return NextResponse.json(result)
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'PATCH /api/github-connection')
   }
 }
 
@@ -85,10 +68,7 @@ export async function PUT() {
     })
     return NextResponse.json(state)
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'PUT /api/github-connection')
   }
 }
 
@@ -100,9 +80,6 @@ export async function DELETE() {
     })
     return NextResponse.json(result)
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'DELETE /api/github-connection')
   }
 }

@@ -1,6 +1,11 @@
-export function resolveGitHubToken(connection: { tokenSource: 'pat' | 'oauth'; token: string }) {
+import { decryptToken } from './tokenCrypto'
+
+export async function resolveGitHubToken(connection: {
+  tokenSource: 'pat' | 'oauth'
+  token: string
+}) {
   if (connection.tokenSource === 'pat') {
-    return connection.token
+    return await decryptToken(connection.token)
   }
 
   return null

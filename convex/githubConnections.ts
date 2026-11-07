@@ -2,6 +2,7 @@ import { anyApi, mutationGeneric, queryGeneric, actionGeneric } from 'convex/ser
 import { v } from 'convex/values'
 import { DEFAULT_CONNECTION_KEY, DEFAULT_PACKAGE_POLICY, PACKAGE_POLICIES } from './constants'
 import { validatePat } from './github'
+import { encryptToken } from './tokenCrypto'
 import { resolveGitHubToken } from './tokenSource'
 
 export const getConnectionState = queryGeneric({
@@ -73,6 +74,7 @@ export const saveConnection = mutationGeneric({
   },
   handler: async (ctx, args) => {
     const now = Date.now()
+    const storedToken = await encryptToken(args.token)
     const existing = await ctx.db
       .query('githubConnections')
       .withIndex('by_connection_key', (q) => q.eq('connectionKey', args.connectionKey))
@@ -80,7 +82,7 @@ export const saveConnection = mutationGeneric({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        token: args.token,
+        token: storedToken,
         tokenSource: args.tokenSource,
         status: args.status,
         packagePolicy: args.packagePolicy,
@@ -98,7 +100,7 @@ export const saveConnection = mutationGeneric({
 
     return await ctx.db.insert('githubConnections', {
       connectionKey: args.connectionKey,
-      token: args.token,
+      token: storedToken,
       tokenSource: args.tokenSource,
       status: args.status,
       packagePolicy: args.packagePolicy,
@@ -177,7 +179,7 @@ export const refreshConnectionProfile = actionGeneric({
       return { ok: false, message: 'Connection not found' } as const
     }
 
-    const token = resolveGitHubToken(connection)
+    const token = await resolveGitHubToken(connection)
     if (!token) {
       return { ok: false, message: 'OAuth token source is not implemented yet' } as const
     }
