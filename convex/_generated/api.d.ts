@@ -15,6 +15,7 @@ import type * as github from "../github.js";
 import type * as githubConnections from "../githubConnections.js";
 import type * as packageManager from "../packageManager.js";
 import type * as scans from "../scans.js";
+import type * as tokenCrypto from "../tokenCrypto.js";
 import type * as tokenSource from "../tokenSource.js";
 
 import type {
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   githubConnections: typeof githubConnections;
   packageManager: typeof packageManager;
   scans: typeof scans;
+  tokenCrypto: typeof tokenCrypto;
   tokenSource: typeof tokenSource;
 }>;
 

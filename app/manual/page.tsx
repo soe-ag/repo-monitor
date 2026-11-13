@@ -97,7 +97,7 @@ export default function ManualPage() {
             packages listed under{' '}
             <code className="rounded bg-muted px-1 text-xs">dependencies</code> and{' '}
             <code className="rounded bg-muted px-1 text-xs">devDependencies</code> are looked up on
-            the npm registry to find the latest published version. Up to 300 packages are scanned
+            the npm registry to find the latest published version. Up to 50 packages are scanned
             per repository. Each package is classified as <em>none</em>, <em>patch</em>,{' '}
             <em>minor</em>, or <em>major</em> update.
           </li>

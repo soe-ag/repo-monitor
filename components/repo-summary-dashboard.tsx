@@ -6,16 +6,25 @@ import { CheckCircle2, Gauge, PackageCheck, ShieldAlert } from 'lucide-react'
 import { ModeToggle } from '@/components/mode-toggle'
 import { Card, CardContent } from '@/components/ui/card'
 import { getDashboardSummary, type RepositoryHealthCard } from '@/components/repo-health-model'
+import { getDemoRepositories } from '@/components/demo-repositories'
 
 export function RepoSummaryDashboard() {
   const [repositories, setRepositories] = useState<RepositoryHealthCard[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [demoMode, setDemoMode] = useState(false)
 
   useEffect(() => {
     let active = true
 
     async function loadRepositories() {
+      if (window.sessionStorage.getItem('repo-monitor-demo-mode') === 'true') {
+        setDemoMode(true)
+        setRepositories(getDemoRepositories())
+        setError(null)
+        setLoading(false)
+        return
+      }
       try {
         const response = await fetch('/api/scans')
         const payload = (await response.json()) as RepositoryHealthCard[] | { error: string }
@@ -50,7 +59,7 @@ export function RepoSummaryDashboard() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Repository health
+            Repository health{demoMode ? ' · Sample data demo' : ''}
           </p>
           <h1 className="mt-1 font-heading text-3xl tracking-tight sm:text-4xl">Summary dashboard</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">

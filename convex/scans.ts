@@ -240,6 +240,100 @@ export const listRepositoryDashboard = query({
   },
 })
 
+export const getRepositoryDetails = query({
+  args: {
+    repositoryId: v.id('repositories'),
+    connectionKey: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const connection = await ctx.db
+      .query('githubConnections')
+      .withIndex('by_connection_key', (q) =>
+        q.eq('connectionKey', args.connectionKey ?? DEFAULT_CONNECTION_KEY)
+      )
+      .first()
+    if (!connection) return null
+
+    const repository = await ctx.db.get(args.repositoryId)
+    if (!repository || repository.connectionId !== connection._id) return null
+
+    const currentScanRunId = repository.lastScanRunId
+    const [packageFindings, checklistFindings, recentRuns] = await Promise.all([
+      currentScanRunId
+        ? ctx.db
+            .query('packageFindings')
+            .withIndex('by_repository_and_scan', (q) =>
+              q.eq('repositoryId', repository._id).eq('scanRunId', currentScanRunId)
+            )
+            .collect()
+        : Promise.resolve([]),
+      currentScanRunId
+        ? ctx.db
+            .query('checklistFindings')
+            .withIndex('by_repository_and_scan', (q) =>
+              q.eq('repositoryId', repository._id).eq('scanRunId', currentScanRunId)
+            )
+            .collect()
+        : Promise.resolve([]),
+      ctx.db
+        .query('scanRuns')
+        .withIndex('by_connection_and_started_at', (q) => q.eq('connectionId', connection._id))
+        .order('desc')
+        .take(100),
+    ])
+
+    const history = []
+    for (const run of recentRuns) {
+      if (run.repositoryId && run.repositoryId !== repository._id) continue
+      const [runPackages, runChecklist] = await Promise.all([
+        ctx.db
+          .query('packageFindings')
+          .withIndex('by_repository_and_scan', (q) =>
+            q.eq('repositoryId', repository._id).eq('scanRunId', run._id)
+          )
+          .collect(),
+        ctx.db
+          .query('checklistFindings')
+          .withIndex('by_repository_and_scan', (q) =>
+            q.eq('repositoryId', repository._id).eq('scanRunId', run._id)
+          )
+          .collect(),
+      ])
+      const isLatestRun = run._id === currentScanRunId
+      if (!isLatestRun && runPackages.length === 0 && runChecklist.length === 0) continue
+
+      const statuses = [
+        ...runPackages.map((finding) => finding.status),
+        ...runChecklist
+          .filter((finding) => finding.checkKey !== 'dependabot-config')
+          .map((finding) => finding.status),
+      ]
+      history.push({
+        _id: run._id,
+        startedAt: run.startedAt,
+        finishedAt: run.finishedAt,
+        status: run.status,
+        repositoryStatus:
+          isLatestRun && repository.lastScanStatus
+            ? repository.lastScanStatus
+            : statuses.length > 0
+            ? summarizeStatuses(statuses)
+            : run.status === 'failed'
+              ? 'error'
+              : 'unknown',
+        packageUpdateCount: runPackages.filter((finding) => finding.status === 'warning').length,
+        checklistIssueCount: runChecklist.filter(
+          (finding) => finding.status === 'warning' || finding.status === 'missing' || finding.status === 'stale' || finding.status === 'error'
+        ).length,
+        errorSummary: run.errorSummary,
+      })
+      if (history.length === 20) break
+    }
+
+    return { repository, packageFindings, checklistFindings, history }
+  },
+})
+
 export const createScanRun = mutation({
   args: {
     connectionId: v.id('githubConnections'),

@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ExclamationTriangleIcon, Link2Icon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   Activity,
@@ -25,6 +26,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ModeToggle } from '@/components/mode-toggle'
+import {
+  getDemoRepositories,
+  recordDemoScan,
+  saveDemoRepositories,
+} from '@/components/demo-repositories'
 import {
   Select,
   SelectContent,
@@ -139,8 +145,11 @@ function FilterCheckbox({
 }
 
 export function RepoHealthSetup() {
+  const pathname = usePathname()
   const currentYear = new Date().getFullYear()
   const [pat, setPat] = useState('')
+  const [demoMode, setDemoMode] = useState(false)
+  const demoModeRef = useRef(false)
   const [filter, setFilter] = useState<DashboardFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('updated-desc')
   const [customFilters, setCustomFilters] = useState({
@@ -180,6 +189,9 @@ export function RepoHealthSetup() {
     Boolean(loadingState.scanningSingle)
 
   const connectionBadge = useMemo(() => {
+    if (demoMode) {
+      return { text: 'demo', variant: 'outline' as const }
+    }
     if (!connectionState) {
       return { text: 'loading', variant: 'secondary' as const }
     }
@@ -190,7 +202,7 @@ export function RepoHealthSetup() {
       return { text: 'rate-limited', variant: 'outline' as const }
     }
     return { text: 'invalid', variant: 'destructive' as const }
-  }, [connectionState])
+  }, [connectionState, demoMode])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setAppliedCustomFilters(customFilters), 250)
@@ -297,6 +309,22 @@ export function RepoHealthSetup() {
   }
 
   useEffect(() => {
+    if (pathname !== '/') return
+    if (window.sessionStorage.getItem('repo-monitor-demo-mode') === 'true') {
+      demoModeRef.current = true
+      setDemoMode(true)
+      setConnectionState(null)
+      setRepositories(getDemoRepositories())
+      setLoadingState((previous) => ({
+        ...previous,
+        loadingConnection: false,
+        loadingRepositories: false,
+      }))
+      void loadSvglCatalog()
+      return () => {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+      }
+    }
     void loadConnection()
     void loadRepositories()
     void loadSvglCatalog()
@@ -306,7 +334,7 @@ export function RepoHealthSetup() {
         clearInterval(pollIntervalRef.current)
       }
     }
-  }, [])
+  }, [pathname])
 
   async function loadSvglCatalog() {
     try {
@@ -332,6 +360,7 @@ export function RepoHealthSetup() {
   async function loadConnection() {
     setLoadingState((prev) => ({ ...prev, loadingConnection: true }))
     const response = await fetch('/api/github-connection')
+    if (demoModeRef.current) return
     const payload = (await response.json()) as ConnectionState | { error: string }
     if ('error' in payload) {
       setMessage(payload.error ?? 'GitHub connection failed')
@@ -361,6 +390,7 @@ export function RepoHealthSetup() {
     setLoadingState((prev) => ({ ...prev, loadingRepositories: true }))
     setRepositoriesError(null)
     const response = await fetch('/api/scans')
+    if (demoModeRef.current) return
     const payload = (await response.json()) as RepositoryHealthCard[] | { error: string }
     if ('error' in payload) {
       setRepositories([])
@@ -375,6 +405,100 @@ export function RepoHealthSetup() {
       })
     }
     setLoadingState((prev) => ({ ...prev, loadingRepositories: false }))
+  }
+
+  function enterDemoMode() {
+    window.sessionStorage.setItem('repo-monitor-demo-mode', 'true')
+    demoModeRef.current = true
+    setDemoMode(true)
+    setConnectionState(null)
+    setRepositories(getDemoRepositories())
+    setSelectedRepositoryIds([])
+    setMessage(null)
+    setRepositoriesError(null)
+    setScanActivity(null)
+    setLoadingState({
+      connecting: false,
+      deletingConnection: false,
+      loadingConnection: false,
+      loadingRepositories: false,
+      refreshingRepositories: false,
+      scanningAll: false,
+      scanningSingle: '',
+    })
+  }
+
+  async function runDemoScan(repositoryIds: string[], mode: 'all' | 'single') {
+    const selectedIds = repositoryIds.slice(0, MAX_SCAN_SELECTION)
+    const totalCount = selectedIds.length
+    const startedAt = Date.now()
+    const selectedSet = new Set(selectedIds)
+    let nextRepositories = [...repositories]
+
+    setMessage(null)
+    setLoadingState((previous) => ({
+      ...previous,
+      scanningAll: mode === 'all',
+      scanningSingle: mode === 'single' ? selectedIds[0] ?? '' : '',
+    }))
+    setScanActivity({
+      mode,
+      status: 'running',
+      startedAt,
+      selectedRepositoryIds: selectedIds,
+      repositoryId: mode === 'single' ? selectedIds[0] : undefined,
+      repositoryName:
+        mode === 'single'
+          ? getRepositoryDisplayName(repositories.find((repo) => repo._id === selectedIds[0])?.fullName ?? 'sample repository')
+          : undefined,
+      currentRepositoryName: getRepositoryDisplayName(
+        repositories.find((repo) => repo._id === selectedIds[0])?.fullName ?? 'sample repository'
+      ),
+      processedCount: 0,
+      totalCount,
+    })
+
+    for (const [index, repositoryId] of selectedIds.entries()) {
+      const repository = nextRepositories.find((repo) => repo._id === repositoryId)
+      if (!repository) continue
+      setScanActivity((previous) => previous ? {
+        ...previous,
+        processedCount: index,
+        currentRepositoryName: getRepositoryDisplayName(repository.fullName),
+      } : previous)
+      await new Promise((resolve) => window.setTimeout(resolve, 650))
+      const scannedAt = Date.now()
+      const updatedRepository = { ...repository, lastScanAt: scannedAt }
+      nextRepositories = nextRepositories.map((repo) => repo._id === repositoryId ? updatedRepository : repo)
+      setRepositories(nextRepositories)
+      saveDemoRepositories(nextRepositories)
+      recordDemoScan(updatedRepository, scannedAt)
+    }
+
+    setScanActivity((previous) => previous ? {
+      ...previous,
+      status: 'completed',
+      processedCount: totalCount,
+      currentRepositoryName: undefined,
+      lastCheckedAt: Date.now(),
+    } : previous)
+    setMessage(`Demo scan completed for ${selectedIds.length} sample ${selectedIds.length === 1 ? 'repository' : 'repositories'}. No GitHub or backend requests were made.`)
+    setLoadingState((previous) => ({ ...previous, scanningAll: false, scanningSingle: '' }))
+  }
+
+  function exitDemoMode() {
+    window.sessionStorage.removeItem('repo-monitor-demo-mode')
+    demoModeRef.current = false
+    setDemoMode(false)
+    setRepositories([])
+    setConnectionState(null)
+    setLoadingState((previous) => ({
+      ...previous,
+      loadingConnection: true,
+      loadingRepositories: true,
+    }))
+    void loadConnection()
+    void loadRepositories()
   }
 
   async function refreshRepositories() {
@@ -623,6 +747,11 @@ export function RepoHealthSetup() {
       return
     }
 
+    if (demoMode) {
+      await runDemoScan(selectedForScan, 'all')
+      return
+    }
+
     setLoadingState((prev) => ({ ...prev, scanningAll: true }))
     setMessage(null)
     try {
@@ -660,6 +789,10 @@ export function RepoHealthSetup() {
   }
 
   async function triggerScanSingle(repositoryId: string) {
+    if (demoMode) {
+      await runDemoScan([repositoryId], 'single')
+      return
+    }
     setLoadingState((prev) => ({ ...prev, scanningSingle: repositoryId }))
     setMessage(null)
     try {
@@ -735,6 +868,12 @@ export function RepoHealthSetup() {
         aria-busy={isScanBusy || scanActivity?.status === 'running'}
       >
         <fieldset disabled={isScanBusy} className="contents">
+        {demoMode ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-sm" role="status">
+            <p><strong>Sample data demo</strong> · scans simulate results in this browser session only.</p>
+            <Button type="button" size="sm" variant="outline" onClick={exitDemoMode}>Exit demo</Button>
+          </div>
+        ) : null}
         {message ? (
           <div
             className="rounded-xl border border-border/60 bg-card/90 px-4 py-2 text-sm text-foreground shadow-sm backdrop-blur"
@@ -743,6 +882,28 @@ export function RepoHealthSetup() {
           >
             {message}
           </div>
+        ) : null}
+
+        {!demoMode ? (
+          <section className="rounded-2xl border border-border/60 bg-card px-4 py-4 shadow-sm" aria-label="Getting started">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold">Your repository health workflow</h2>
+              <span className="text-xs text-muted-foreground">Connect · Select · Scan · Review</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-4">
+              {[
+                { title: '1. Connect GitHub', done: Boolean(connectionState?.connected), current: !connectionState?.connected, detail: 'Grant read access to repositories.' },
+                { title: '2. Choose repositories', done: selectedRepositoryIds.length > 0, current: Boolean(connectionState?.connected) && selectedRepositoryIds.length === 0, detail: `${selectedRepositoryIds.length} selected · up to 10 per scan.` },
+                { title: '3. Run a scan', done: repositories.some((repository) => Boolean(repository.lastScanAt)), current: selectedRepositoryIds.length > 0 && !repositories.some((repository) => Boolean(repository.lastScanAt)), detail: 'Check packages, practices, builds, and alerts.' },
+                { title: '4. Review actions', done: repositories.some((repository) => Boolean(repository.lastScanAt)), current: repositories.some((repository) => Boolean(repository.lastScanAt)), detail: 'Open a report to see priorities and history.' },
+              ].map((step) => (
+                <div key={step.title} className={`rounded-xl border px-3 py-2.5 ${step.current ? 'border-primary/40 bg-primary/5' : step.done ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-border/60 bg-muted/20'}`}>
+                  <p className="text-xs font-semibold">{step.title}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{step.detail}</p>
+                </div>
+              ))}
+            </div>
+          </section>
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -834,10 +995,23 @@ export function RepoHealthSetup() {
                 ) : (
                   <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                     <ShieldCheck className="size-4" aria-hidden="true" />
-                    Connect GitHub to start scanning repositories.
+                    {demoMode
+                      ? 'Browsing fictional sample data. Your GitHub connection is unchanged.'
+                      : 'Connect GitHub to start scanning repositories.'}
                   </div>
                 )}
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {!demoMode ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-full px-3 text-xs"
+                      onClick={enterDemoMode}
+                    >
+                      Explore sample demo
+                    </Button>
+                  ) : null}
                   <Link
                     href="/dashboard"
                     className="inline-flex h-8 items-center justify-center rounded-full border border-border/70 bg-background/80 px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-background"
@@ -856,7 +1030,7 @@ export function RepoHealthSetup() {
                     variant="outline"
                     className="h-8 rounded-full px-3 text-xs"
                     onClick={() => void refreshRepositories()}
-                    disabled={!connectionState?.connected || loadingState.refreshingRepositories}
+                    disabled={demoMode || !connectionState?.connected || loadingState.refreshingRepositories}
                   >
                     <ReloadIcon className={loadingState.refreshingRepositories ? 'animate-spin' : undefined} />
                     {loadingState.refreshingRepositories ? 'Refreshing...' : 'Refresh repositories'}
@@ -865,8 +1039,8 @@ export function RepoHealthSetup() {
               </div>
             </CardHeader>
             <CardContent className="relative space-y-3 px-5 pb-1">
-              {!connectionState?.connected ? (
-                <form onSubmit={connectWithPat} className="space-y-2.5">
+              {!connectionState?.connected && !demoMode ? (
+                  <form onSubmit={connectWithPat} className="space-y-2.5">
                   <label htmlFor="github-pat" className="sr-only">
                     GitHub personal access token
                   </label>
@@ -1339,6 +1513,9 @@ export function RepoHealthSetup() {
                             ? new Date(repository.lastScanAt).toLocaleString('en-US')
                             : 'Never'}
                         </span>
+                        <Link href={`/repositories/${encodeURIComponent(repository._id)}`} className="text-xs font-semibold underline underline-offset-4">
+                          View report
+                        </Link>
                       </div>
 
                       <Button
