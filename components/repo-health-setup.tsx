@@ -309,7 +309,9 @@ export function RepoHealthSetup() {
   }
 
   useEffect(() => {
-    if (pathname !== '/') return
+    // `usePathname` can be null while the router initializes (and in isolated
+    // component renders). Treat that as the home page until a pathname exists.
+    if (pathname && pathname !== '/') return
     if (window.sessionStorage.getItem('repo-monitor-demo-mode') === 'true') {
       demoModeRef.current = true
       setDemoMode(true)
